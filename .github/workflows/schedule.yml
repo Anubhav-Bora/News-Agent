@@ -1,0 +1,20 @@
+# GitHub Actions workflow (cron trigger)
+name: Daily News Pipeline
+
+on:
+  schedule:
+    # Run daily at 8:00 AM UTC
+    - cron: '0 8 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  run-news-pipeline:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Trigger News Pipeline
+        run: |
+          curl -X POST ${{ secrets.PIPELINE_ENDPOINT }} \
+            -H "Authorization: Bearer ${{ secrets.API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"trigger": "scheduled"}'
