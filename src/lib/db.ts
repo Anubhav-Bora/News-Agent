@@ -9,7 +9,6 @@ export async function getUserInterests(userId: string) {
 
   if (error && error.code !== "PGRST116") throw error;
 
-
   return data || { sports: 0.5, technology: 0.5, national: 0.5, international: 0.5 };
 }
 

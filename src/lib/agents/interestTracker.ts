@@ -4,10 +4,8 @@ export async function updateInterestProfile(userId: string, topic: string) {
   const interests = await getUserInterests(userId);
   const newInterests = { ...interests };
 
-
   newInterests[topic] = Math.min(1, (newInterests[topic] || 0.5) + 0.1);
 
-  
   for (const key of Object.keys(newInterests)) {
     if (key !== topic) {
       newInterests[key] = Math.max(0.1, newInterests[key] - 0.02);

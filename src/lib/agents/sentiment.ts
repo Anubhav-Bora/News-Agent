@@ -1,7 +1,7 @@
 
 export interface SentimentResult {
-  label: string;   
-  score: number;   
+  label: string;
+  score: number;
 }
 
 export async function analyzeSentiment(text: string): Promise<SentimentResult> {
@@ -26,7 +26,6 @@ export async function analyzeSentiment(text: string): Promise<SentimentResult> {
   }
 
   const data = await response.json();
-
 
   const result = data[0][0] as SentimentResult;
   return result;
