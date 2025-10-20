@@ -2,22 +2,41 @@ import { z } from "zod";
 import { load } from "cheerio";
 import fetch from "node-fetch";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
+import { analyzeSentimentsBatch } from "./sentiment";
 
+// Enhanced schemas with sentiment included
 export const NewsItemSchema = z.object({
   title: z.string(),
   link: z.string().nullable(),
   summary: z.string(),
   source: z.string().nullable(),
   pubDate: z.string().nullable(),
+  sentiment: z.enum(["positive", "negative", "neutral"]),
+  sentimentScore: z.number().min(0).max(1),
 });
 export type NewsItem = z.infer<typeof NewsItemSchema>;
+
+export const WeatherSchema = z.object({
+  location: z.string(),
+  temperature: z.number(),
+  condition: z.string(),
+  humidity: z.number().optional(),
+  windSpeed: z.number().optional(),
+  forecast: z.array(z.object({
+    day: z.string(),
+    high: z.number(),
+    low: z.number(),
+    condition: z.string(),
+  })).optional(),
+});
+export type Weather = z.infer<typeof WeatherSchema>;
 
 export const DigestSchema = z.object({
   date: z.string(),
   language: z.string(),
   topic: z.string(),
+  weather: WeatherSchema.optional(),
   items: z.array(NewsItemSchema),
 });
 export type DailyDigest = z.infer<typeof DigestSchema>;
@@ -57,22 +76,37 @@ const FEEDS: Record<string, string[]> = {
 };
 
 async function fetchRssItems(feedUrl: string) {
-  const res = await fetch(feedUrl, { headers: { "User-Agent": "NewsAgent/1.0" } });
-  const xml = await res.text();
-  const $ = load(xml, { xmlMode: true });
-  const items = $("item")
-    .map((_, el) => ({
-      title: $(el).find("title").text().trim(),
-      link: $(el).find("link").text().trim() || null,
-      description: $(el).find("description").text().trim() || $(el).find("summary").text().trim() || "",
-      pubDate: $(el).find("pubDate").text().trim() || null,
-      source: $(el).find("source").text().trim() || null
-    }))
-    .get();
-  return items.slice(0, 20);
+  try {
+    const res = await fetch(feedUrl, { headers: { "User-Agent": "NewsAgent/1.0" } });
+    if (!res.ok) return [];
+    
+    const xml = await res.text();
+    const $ = load(xml, { xmlMode: true });
+    const items = $("item")
+      .map((_, el) => ({
+        title: $(el).find("title").text().trim(),
+        link: $(el).find("link").text().trim() || null,
+        description: $(el).find("description").text().trim() || $(el).find("summary").text().trim() || "",
+        pubDate: $(el).find("pubDate").text().trim() || null,
+        source: $(el).find("source").text().trim() || null
+      }))
+      .get();
+    return items.slice(0, 20);
+  } catch (err) {
+    console.error(`Error fetching feed ${feedUrl}:`, err);
+    return [];
+  }
 }
 
-function uniqueByLink(items: Array<any>) {
+interface RSSItem {
+  link?: string | null;
+  title: string;
+  description: string;
+  pubDate?: string | null;
+  source?: string | null;
+}
+
+function uniqueByLink(items: RSSItem[]): RSSItem[] {
   const seen = new Set<string>();
   return items.filter((it) => {
     const key = it.link || it.title;
@@ -82,8 +116,52 @@ function uniqueByLink(items: Array<any>) {
   });
 }
 
-export async function collectDailyDigest(topic = "all", language = "en"): Promise<DailyDigest> {
+async function fetchWeatherData(location: string = "New York"): Promise<Weather | null> {
+  try {
+    if (!process.env.OPENWEATHER_API_KEY) {
+      console.warn("⚠️ OPENWEATHER_API_KEY not configured, skipping weather data");
+      return null;
+    }
+
+    const response = await fetch(
+      `https://api.openweathermap.org/data/2.5/weather?q=${location}&appid=${process.env.OPENWEATHER_API_KEY}&units=metric`
+    );
+
+    if (!response.ok) {
+      console.warn(`⚠️ Failed to fetch weather for ${location}`);
+      return null;
+    }
+
+    const data = await response.json() as {
+      name: string;
+      sys: { country: string };
+      main: { temp: number; humidity: number };
+      weather: Array<{ main: string }>;
+      wind: { speed: number };
+    };
+
+    return {
+      location: `${data.name}, ${data.sys?.country}`,
+      temperature: Math.round(data.main.temp),
+      condition: data.weather[0]?.main || "Unknown",
+      humidity: data.main.humidity,
+      windSpeed: Math.round(data.wind.speed * 3.6),
+    };
+  } catch (err) {
+    console.error("Error fetching weather data:", err);
+    return null;
+  }
+}
+
+export async function collectDailyDigest(
+  topic = "all",
+  language = "en",
+  location?: string
+): Promise<DailyDigest> {
   const feeds = FEEDS[topic] ?? FEEDS["all"];
+  
+  console.log(`📰 Collecting digest for topic: ${topic}`);
+  
   const rawGroups = await Promise.all(feeds.map((f) => fetchRssItems(f).catch(() => [])));
   const rawArticles = uniqueByLink(rawGroups.flat())
     .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
@@ -98,10 +176,14 @@ export async function collectDailyDigest(topic = "all", language = "en"): Promis
     )
     .join("\n\n");
 
+  if (!process.env.GOOGLE_API_KEY) {
+    throw new Error("Missing GOOGLE_API_KEY environment variable");
+  }
+
   const model = new ChatGoogleGenerativeAI({
     model: "gemini-1.5-flash",
     temperature: 0.2,
-    apiKey: process.env.GOOGLE_API_KEY!
+    apiKey: process.env.GOOGLE_API_KEY
   });
 
   const jsonExample = JSON.stringify({
@@ -111,7 +193,6 @@ export async function collectDailyDigest(topic = "all", language = "en"): Promis
     items: Array(15).fill({ title: "", link: "", summary: "", source: "", pubDate: "" })
   });
 
-  
   const promptContent = `You are a precise multilingual news curator.
 
 Today's date is ${new Date().toISOString().split("T")[0]}. The user requested topic: ${topic} and language: ${language}.
@@ -119,7 +200,7 @@ From the list below, choose the 15 most important and recent headlines relevant 
 For each chosen article, provide:
 - title: a concise informative headline in the requested language
 - link: the exact original link from the article data (if missing, set to null)
-- summary: a 150 words factual summary in the requested language
+- summary: a 200 words factual summary in the requested language
 - source: the source name if available
 - pubDate: use the pubDate from the feed if available
 
@@ -140,29 +221,63 @@ ${articlesText}`;
     throw new Error(`Failed to parse JSON from model output: ${e}`);
   }
 
-  const parsed = DigestSchema.safeParse(parsedJson);
-  if (!parsed.success) throw new Error(`Schema validation failed: ${JSON.stringify(parsed.error.errors)}`);
+  const baseDigest = DigestSchema.safeParse({
+    ...parsedJson,
+    items: (parsedJson.items || []).map((item: Record<string, unknown>) => ({
+      ...item,
+      sentiment: "neutral",
+      sentimentScore: 0.5
+    }))
+  });
 
-  const itemsWithContext = parsed.data.items.map((it) => {
-    const match =
+  if (!baseDigest.success) throw new Error(`Schema validation failed: ${JSON.stringify(baseDigest.error.errors)}`);
+
+  // Analyze sentiments in batch using sentiment agent
+  console.log(`🔍 Analyzing sentiments for ${baseDigest.data.items.length} articles...`);
+  const articlesForSentiment = baseDigest.data.items.map(i => ({
+    title: i.title,
+    summary: i.summary
+  }));
+  const sentimentResults = await analyzeSentimentsBatch(articlesForSentiment);
+
+  // Enrich items with context and sentiments
+  const itemsWithContext = baseDigest.data.items.map((it, idx) => {
+    const match: RSSItem | undefined =
       rawArticles.find((r) => {
         const titleMatch = r.title && it.title && r.title.toLowerCase().includes(it.title.toLowerCase().slice(0, 20));
         const linkMatch = r.link && it.link && r.link === it.link;
         return linkMatch || titleMatch;
-      }) || {};
+      });
+    
+    const sentimentData = sentimentResults[idx] || { sentiment: "neutral", score: 0.5, reasoning: "" };
+    
     return {
       title: it.title,
-      link: it.link ?? match.link ?? null,
+      link: it.link ?? match?.link ?? null,
       summary: it.summary,
-      source: it.source ?? match.source ?? null,
-      pubDate: it.pubDate ?? match.pubDate ?? null
+      source: it.source ?? match?.source ?? null,
+      pubDate: it.pubDate ?? match?.pubDate ?? null,
+      sentiment: sentimentData.sentiment as "positive" | "negative" | "neutral",
+      sentimentScore: sentimentData.score
     };
   });
 
+  let weather: Weather | undefined;
+  if (location) {
+    const weatherData = await fetchWeatherData(location);
+    if (weatherData) {
+      weather = weatherData;
+      console.log(`✅ Weather data collected for ${location}`);
+    }
+  }
+
+  console.log(`✅ Digest collected with ${itemsWithContext.length} articles`);
+
   return {
-    date: parsed.data.date,
-    language: parsed.data.language,
-    topic: parsed.data.topic,
+    date: baseDigest.data.date,
+    language: baseDigest.data.language,
+    topic: baseDigest.data.topic,
+    weather,
     items: itemsWithContext
   };
 }

@@ -10,9 +10,10 @@ export async function GET(req: Request) {
     const digest = await collectDailyDigest(topic, language);
 
     return NextResponse.json(digest, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Failed to collect news digest";
     return NextResponse.json(
-      { error: err.message || "Failed to collect news digest" },
+      { error: errorMessage },
       { status: 500 }
     );
   }

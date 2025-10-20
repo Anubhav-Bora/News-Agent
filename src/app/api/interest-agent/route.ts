@@ -15,7 +15,8 @@ export async function POST(req: Request) {
       message: "Interest profile updated successfully",
       updatedInterests: updated
     });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Failed to update interest profile";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
