@@ -21,7 +21,7 @@ export async function getUserInterests(userId: string): Promise<Record<string, n
       return dbInterests;
     }
   } catch (err) {
-    console.warn(`⚠️ Failed to fetch from DB, using in-memory storage`);
+    console.warn(`Failed to fetch from DB, using in-memory storage`);
   }
 
   // Fall back to in-memory storage
@@ -42,7 +42,7 @@ export async function updateUserInterests(userId: string, interests: Record<stri
   try {
     await saveUserInterestsToDb(userId, interests);
   } catch (err) {
-    console.warn(`⚠️ Failed to save interests to DB, using in-memory only`);
+    console.warn(`Failed to save interests to DB, using in-memory only`);
   }
 }
 
@@ -55,7 +55,7 @@ export async function addToBrowsingHistory(userId: string, articleTitles: string
   try {
     await addToBrowsingHistoryDB(userId, articleTitles);
   } catch (err) {
-    console.warn(`⚠️ Failed to save browsing history to DB, using in-memory only`);
+    console.warn(`Failed to save browsing history to DB, using in-memory only`);
   }
 }
 

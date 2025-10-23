@@ -36,10 +36,8 @@ export default function PipelinePage() {
         throw new Error(result.message || "Failed to start pipeline");
       }
 
-      // Show success with pipelineId
       if (result.pipelineId) {
         console.log(`Pipeline started with ID: ${result.pipelineId}`);
-        // You could redirect to a status page or show details
       }
     } catch (error) {
       const errorMessage =

@@ -23,7 +23,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<PipelineR
 
     const { userId, email, language, newsType, state, location } = body;
 
-    // Validation
     if (!userId || !email || !language || !newsType) {
       return NextResponse.json(
         {
@@ -37,13 +36,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<PipelineR
       );
     }
 
-    logger.info(`🚀 Starting pipeline ${pipelineId}`, {
+    logger.info(`Starting pipeline ${pipelineId}`, {
       userId,
       newsType,
       language,
     });
 
-    // Execute the LangChain-based pipeline orchestrator
     const result: PipelineOutput = await executePipeline({
       userId,
       email,
@@ -53,7 +51,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<PipelineR
       location,
     });
 
-    logger.info(`✨ Pipeline ${pipelineId} completed successfully`, {
+    logger.info(`Pipeline ${pipelineId} completed successfully`, {
       articlesProcessed: result.newsCollected,
       audioGenerated: result.audioGenerated,
       emailSent: result.emailSent,
@@ -75,7 +73,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<PipelineR
     );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    logger.error(`❌ Pipeline ${pipelineId} failed: ${errorMessage}`, error);
+    logger.error(`Pipeline ${pipelineId} failed: ${errorMessage}`, error);
 
     return NextResponse.json(
       {
@@ -104,10 +102,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  logger.info(`📊 Checking status of pipeline: ${pipelineId}`);
+  logger.info(`Checking status of pipeline: ${pipelineId}`);
 
-  // In a real implementation, you would query a database for pipeline status
-  // For now, return a placeholder response
   return NextResponse.json(
     {
       pipelineId,

@@ -13,28 +13,28 @@ export default function Home(): ReactNode {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="rounded-lg border border-gray-300 p-6 hover:shadow-lg transition-shadow">
-            <h2 className="text-2xl font-semibold mb-2">📰 News Digest</h2>
+            <h2 className="text-2xl font-semibold mb-2">News Digest</h2>
             <p className="text-gray-600">
               Get personalized news summaries tailored to your interests.
             </p>
           </div>
 
           <div className="rounded-lg border border-gray-300 p-6 hover:shadow-lg transition-shadow">
-            <h2 className="text-2xl font-semibold mb-2">🎯 Smart Filtering</h2>
+            <h2 className="text-2xl font-semibold mb-2">Smart Filtering</h2>
             <p className="text-gray-600">
               AI-powered sentiment analysis and topic categorization.
             </p>
           </div>
 
           <div className="rounded-lg border border-gray-300 p-6 hover:shadow-lg transition-shadow">
-            <h2 className="text-2xl font-semibold mb-2">🔊 Audio News</h2>
+            <h2 className="text-2xl font-semibold mb-2">Audio News</h2>
             <p className="text-gray-600">
               Listen to your news digest as a podcast.
             </p>
           </div>
 
           <div className="rounded-lg border border-gray-300 p-6 hover:shadow-lg transition-shadow">
-            <h2 className="text-2xl font-semibold mb-2">📧 Email Delivery</h2>
+            <h2 className="text-2xl font-semibold mb-2">Email Delivery</h2>
             <p className="text-gray-600">
               Receive daily digests directly in your inbox.
             </p>

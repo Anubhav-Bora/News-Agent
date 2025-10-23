@@ -1,7 +1,3 @@
-/**
- * Logger utility for the News Agent application
- */
-
 interface LogContext {
   [key: string]: unknown;
 }

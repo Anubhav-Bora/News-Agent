@@ -11,8 +11,6 @@ export async function uploadPDFToSupabase(
   try {
     const storagePath = `${userId}/${fileName}`;
 
-    console.log(`📤 Uploading PDF to Supabase: ${storagePath}`);
-
     const { data, error } = await supabaseAdmin.storage
       .from(PDF_BUCKET)
       .upload(storagePath, pdfBuffer, {
@@ -24,15 +22,13 @@ export async function uploadPDFToSupabase(
       throw new Error(`Upload failed: ${error.message}`);
     }
 
-    console.log(`✅ PDF uploaded successfully: ${data.path}`);
-
     const {
       data: { publicUrl },
     } = supabaseAdmin.storage.from(PDF_BUCKET).getPublicUrl(storagePath);
 
     return publicUrl;
   } catch (err) {
-    console.error("❌ Error uploading PDF to Supabase:", err);
+    console.error("Error uploading PDF to Supabase:", err);
     throw err;
   }
 }
@@ -45,8 +41,6 @@ export async function uploadAudioToSupabase(
   try {
     const storagePath = `${userId}/${fileName}`;
 
-    console.log(`📤 Uploading audio to Supabase: ${storagePath}`);
-
     const { data, error } = await supabaseAdmin.storage
       .from(AUDIO_BUCKET)
       .upload(storagePath, audioBuffer, {
@@ -58,15 +52,13 @@ export async function uploadAudioToSupabase(
       throw new Error(`Upload failed: ${error.message}`);
     }
 
-    console.log(`✅ Audio uploaded successfully: ${data.path}`);
-
     const {
       data: { publicUrl },
     } = supabaseAdmin.storage.from(AUDIO_BUCKET).getPublicUrl(storagePath);
 
     return publicUrl;
   } catch (err) {
-    console.error("❌ Error uploading audio to Supabase:", err);
+    console.error("Error uploading audio to Supabase:", err);
     throw err;
   }
 }
@@ -83,8 +75,6 @@ export async function savePDFMetadata(
   }
 ) {
   try {
-    console.log(`💾 Saving PDF metadata to database`);
-
     const { data: existingPdf } = await supabaseAdmin
       .from("pdf_digests")
       .select("id")
@@ -105,7 +95,7 @@ export async function savePDFMetadata(
         .eq("id", existingPdf.id);
 
       if (error) {
-        console.warn(`⚠️ Failed to update metadata: ${error.message}`);
+        console.warn(`Failed to update metadata: ${error.message}`);
       }
     } else {
       const { error } = await supabaseAdmin.from("pdf_digests").insert({
@@ -120,13 +110,13 @@ export async function savePDFMetadata(
       });
 
       if (error) {
-        console.warn(`⚠️ Failed to save metadata: ${error.message}`);
+        console.warn(`Failed to save metadata: ${error.message}`);
       }
     }
 
-    console.log(`✅ PDF metadata saved successfully`);
+    console.log(`PDF metadata saved successfully`);
   } catch (err) {
-    console.warn("⚠️ Error saving PDF metadata:", err);
+    console.warn("Error saving PDF metadata:", err);
   }
 }
 
@@ -144,7 +134,7 @@ export async function getUserPDFs(userId: string) {
 
     return data || [];
   } catch (err) {
-    console.error("❌ Error fetching user PDFs:", err);
+    console.error("Error fetching user PDFs:", err);
     throw err;
   }
 }
@@ -165,7 +155,7 @@ export async function getLatestUserPDF(userId: string) {
 
     return data || null;
   } catch (err) {
-    console.error("❌ Error fetching latest PDF:", err);
+    console.error("Error fetching latest PDF:", err);
     throw err;
   }
 }
@@ -173,8 +163,6 @@ export async function getLatestUserPDF(userId: string) {
 export async function deletePDF(userId: string, fileName: string) {
   try {
     const storagePath = `${userId}/${fileName}`;
-
-    console.log(`🗑️ Deleting PDF: ${storagePath}`);
 
     const { error: storageError } = await supabase.storage
       .from(PDF_BUCKET)
@@ -194,9 +182,9 @@ export async function deletePDF(userId: string, fileName: string) {
       throw new Error(`Failed to delete from database: ${dbError.message}`);
     }
 
-    console.log(`✅ PDF deleted successfully`);
+    console.log(`PDF deleted successfully`);
   } catch (err) {
-    console.error("❌ Error deleting PDF:", err);
+    console.error("Error deleting PDF:", err);
     throw err;
   }
 }
@@ -212,8 +200,6 @@ export async function ensurePDFBucketExists() {
     const bucketExists = data?.some((bucket) => bucket.name === PDF_BUCKET);
 
     if (!bucketExists) {
-      console.log(`📦 Creating PDF bucket: ${PDF_BUCKET}`);
-
       const { error: createError } = await supabase.storage.createBucket(
         PDF_BUCKET,
         {
@@ -226,12 +212,12 @@ export async function ensurePDFBucketExists() {
         throw new Error(`Failed to create bucket: ${createError.message}`);
       }
 
-      console.log(`✅ PDF bucket created successfully`);
+      console.log(`PDF bucket created successfully`);
     } else {
-      console.log(`✅ PDF bucket already exists`);
+      console.log(`PDF bucket already exists`);
     }
   } catch (err) {
-    console.error("❌ Error ensuring PDF bucket:", err);
+    console.error("Error ensuring PDF bucket:", err);
     throw err;
   }
 }
@@ -247,13 +233,11 @@ export async function ensureAudioBucketExists() {
     const bucketExists = data?.some((bucket) => bucket.name === AUDIO_BUCKET);
 
     if (!bucketExists) {
-      console.log(`📦 Creating audio bucket: ${AUDIO_BUCKET}`);
-
       const { error: createError } = await supabase.storage.createBucket(
         AUDIO_BUCKET,
         {
           public: true,
-          fileSizeLimit: 104857600, // 100MB for audio
+          fileSizeLimit: 104857600,
         }
       );
 
@@ -261,17 +245,15 @@ export async function ensureAudioBucketExists() {
         throw new Error(`Failed to create bucket: ${createError.message}`);
       }
 
-      console.log(`✅ Audio bucket created successfully`);
+      console.log(`Audio bucket created successfully`);
     } else {
-      console.log(`✅ Audio bucket already exists`);
+      console.log(`Audio bucket already exists`);
     }
   } catch (err) {
-    console.error("❌ Error ensuring audio bucket:", err);
+    console.error("Error ensuring audio bucket:", err);
     throw err;
   }
 }
-
-// ========== PERSISTENT INTEREST TRACKING ==========
 
 export async function getUserInterestsFromDB(
   userId: string
@@ -284,7 +266,7 @@ export async function getUserInterestsFromDB(
       .single();
 
     if (error && error.code !== "PGRST116") {
-      console.warn(`⚠️ Failed to fetch interests: ${error.message}`);
+      console.warn(`Failed to fetch interests: ${error.message}`);
       return {
         national: 0.3,
         international: 0.3,
@@ -306,7 +288,7 @@ export async function getUserInterestsFromDB(
 
     return data.interests_data || {};
   } catch (err) {
-    console.error("❌ Error fetching user interests:", err);
+    console.error("Error fetching user interests:", err);
     return {
       national: 0.3,
       international: 0.3,
@@ -338,9 +320,9 @@ export async function saveUserInterestsToDb(
         .eq("user_id", userId);
 
       if (error) {
-        console.warn(`⚠️ Failed to update interests: ${error.message}`);
+        console.warn(`Failed to update interests: ${error.message}`);
       } else {
-        console.log(`✅ Updated interests for user ${userId}`);
+        console.log(`Updated interests for user ${userId}`);
       }
     } else {
       const { error } = await supabase.from("user_interests").insert({
@@ -351,13 +333,13 @@ export async function saveUserInterestsToDb(
       });
 
       if (error) {
-        console.warn(`⚠️ Failed to save interests: ${error.message}`);
+        console.warn(`Failed to save interests: ${error.message}`);
       } else {
-        console.log(`✅ Saved interests for user ${userId}`);
+        console.log(`Saved interests for user ${userId}`);
       }
     }
   } catch (err) {
-    console.error("❌ Error saving user interests:", err);
+    console.error("Error saving user interests:", err);
   }
 }
 
@@ -391,9 +373,9 @@ export async function addToBrowsingHistoryDB(
         .eq("user_id", userId);
 
       if (error) {
-        console.warn(`⚠️ Failed to update browsing history: ${error.message}`);
+        console.warn(`Failed to update browsing history: ${error.message}`);
       } else {
-        console.log(`✅ Updated browsing history for user ${userId}`);
+        console.log(`Updated browsing history for user ${userId}`);
       }
     } else {
       const { error } = await supabase.from("user_browsing_history").insert({
@@ -404,13 +386,13 @@ export async function addToBrowsingHistoryDB(
       });
 
       if (error) {
-        console.warn(`⚠️ Failed to save browsing history: ${error.message}`);
+        console.warn(`Failed to save browsing history: ${error.message}`);
       } else {
-        console.log(`✅ Saved browsing history for user ${userId}`);
+        console.log(`Saved browsing history for user ${userId}`);
       }
     }
   } catch (err) {
-    console.error("❌ Error saving browsing history:", err);
+    console.error("Error saving browsing history:", err);
   }
 }
 
@@ -425,21 +407,19 @@ export async function getBrowsingHistoryFromDB(
       .single();
 
     if (error && error.code !== "PGRST116") {
-      console.warn(`⚠️ Failed to fetch browsing history: ${error.message}`);
+      console.warn(`Failed to fetch browsing history: ${error.message}`);
       return [];
     }
 
     return data?.article_titles || [];
   } catch (err) {
-    console.error("❌ Error fetching browsing history:", err);
+    console.error("Error fetching browsing history:", err);
     return [];
   }
 }
 
 export async function clearUserData(userId: string): Promise<void> {
   try {
-    console.log(`🗑️ Clearing all data for user ${userId}`);
-
     const { error: interestsError } = await supabase
       .from("user_interests")
       .delete()
@@ -451,17 +431,17 @@ export async function clearUserData(userId: string): Promise<void> {
       .eq("user_id", userId);
 
     if (interestsError) {
-      console.warn(`⚠️ Error clearing interests: ${interestsError.message}`);
+      console.warn(`Error clearing interests: ${interestsError.message}`);
     }
 
     if (historyError) {
-      console.warn(`⚠️ Error clearing history: ${historyError.message}`);
+      console.warn(`Error clearing history: ${historyError.message}`);
     }
 
     if (!interestsError && !historyError) {
-      console.log(`✅ Cleared all user data for ${userId}`);
+      console.log(`Cleared all user data for ${userId}`);
     }
   } catch (err) {
-    console.error("❌ Error clearing user data:", err);
+    console.error("Error clearing user data:", err);
   }
 }

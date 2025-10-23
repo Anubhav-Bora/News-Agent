@@ -26,12 +26,12 @@ const LANGUAGES = [
 ];
 
 const NEWS_TYPES = [
-  { value: "all", label: "All News", icon: "📰" },
-  { value: "tech", label: "Technology", icon: "💻" },
-  { value: "national", label: "National", icon: "🏛️" },
-  { value: "international", label: "International", icon: "🌍" },
-  { value: "sports", label: "Sports", icon: "⚽" },
-  { value: "state", label: "State News", icon: "📍" },
+  { value: "all", label: "All News", icon: "" },
+  { value: "tech", label: "Technology", icon: "" },
+  { value: "national", label: "National", icon: "" },
+  { value: "international", label: "International", icon: "" },
+  { value: "sports", label: "Sports", icon: "" },
+  { value: "state", label: "State News", icon: "" },
 ];
 
 const INDIAN_STATES = [
@@ -157,7 +157,7 @@ export const PipelineSelector: React.FC<PipelineSelectorProps> = ({
         {/* Email Input */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">
-            📧 Email Address
+            Email Address
           </label>
           <input
             type="email"
@@ -173,7 +173,7 @@ export const PipelineSelector: React.FC<PipelineSelectorProps> = ({
         {/* Language Selection */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">
-            🌐 Language
+            Language
           </label>
           <select
             name="language"
@@ -193,7 +193,7 @@ export const PipelineSelector: React.FC<PipelineSelectorProps> = ({
         {/* News Type Selection */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-3">
-            📰 News Category
+            News Category
           </label>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {NEWS_TYPES.map((type) => (
@@ -231,7 +231,7 @@ export const PipelineSelector: React.FC<PipelineSelectorProps> = ({
         {formData.newsType === "state" && (
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
-              📍 Select State
+              Select State
             </label>
             <select
               name="state"
@@ -253,14 +253,14 @@ export const PipelineSelector: React.FC<PipelineSelectorProps> = ({
         {/* Error Message */}
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-800 font-semibold">❌ {error}</p>
+            <p className="text-red-800 font-semibold">{error}</p>
           </div>
         )}
 
         {/* Success Message */}
         {success && (
           <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-green-800 font-semibold">✅ {success}</p>
+            <p className="text-green-800 font-semibold">{success}</p>
           </div>
         )}
 
@@ -298,22 +298,22 @@ export const PipelineSelector: React.FC<PipelineSelectorProps> = ({
               Processing...
             </span>
           ) : (
-            "🚀 Start Pipeline"
+            "Start Pipeline"
           )}
         </button>
 
         {/* Info Box */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <p className="text-sm text-blue-800">
-            <strong>📋 What happens next:</strong>
+            <strong>What happens next:</strong>
           </p>
           <ul className="text-sm text-blue-700 mt-2 space-y-1">
-            <li>✓ Your news preferences are processed</li>
-            <li>✓ Articles are collected from RSS feeds</li>
-            <li>✓ Audio digest is generated</li>
-            <li>✓ Sentiment analysis is performed</li>
-            <li>✓ Your interests are tracked</li>
-            <li>✓ Email with audio is sent to you</li>
+            <li>Your news preferences are processed</li>
+            <li>Articles are collected from RSS feeds</li>
+            <li>Audio digest is generated</li>
+            <li>Sentiment analysis is performed</li>
+            <li>Your interests are tracked</li>
+            <li>Email with audio is sent to you</li>
           </ul>
         </div>
       </form>

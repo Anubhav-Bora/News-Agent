@@ -79,12 +79,12 @@ function generateRecommendations(
   
   const negativePercent = (sentimentCounts.negative / articles.length) * 100;
   if (negativePercent > 40) {
-    recommendations.push("⚠️ High concentration of negative sentiment detected. Consider investigating underlying issues.");
+    recommendations.push("High concentration of negative sentiment detected. Consider investigating underlying issues.");
   }
   
   const positivePercent = (sentimentCounts.positive / articles.length) * 100;
   if (positivePercent > 50) {
-    recommendations.push("✓ Positive sentiment dominance indicates favorable coverage trends.");
+    recommendations.push("Positive sentiment dominance indicates favorable coverage trends.");
   }
   
   const avgReliability = calculateAverageReliability(articles);
@@ -285,9 +285,9 @@ export async function generateDigestPDF(
   yPosition -= 18;
 
   const alerts = [
-    sentimentCounts.negative > sentimentCounts.positive ? "⚠️ Negative sentiment exceeds positive" : "✓ Balanced sentiment distribution",
-    Object.keys(topicCounts).length > 8 ? "ℹ️ High topic diversity detected" : "ℹ️ Focused topic coverage",
-    articles.length > 20 ? "✓ Strong article volume" : "⚠️ Limited article volume"
+    sentimentCounts.negative > sentimentCounts.positive ? "Negative sentiment exceeds positive" : "Balanced sentiment distribution",
+    Object.keys(topicCounts).length > 8 ? "High topic diversity detected" : "Focused topic coverage",
+    articles.length > 20 ? "Strong article volume" : "Limited article volume"
   ];
 
   for (const alert of alerts) {

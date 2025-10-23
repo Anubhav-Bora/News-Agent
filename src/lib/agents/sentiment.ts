@@ -185,7 +185,7 @@ export async function enrichArticlesWithSentiment(
     sentimentScore: sentiments[idx]?.score || 0.5
   }));
 
-  console.log(`✅ Sentiment analysis complete`);
+  console.log(`Sentiment analysis complete`);
 
   return enriched;
 }

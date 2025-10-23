@@ -69,7 +69,7 @@ export const createNewsPipeline = () => {
   // Step 1: Collect news
   const collectorStep = new RunnableLambda({
     func: async (input: PipelineInput): Promise<PipelineContext> => {
-      logger.info(`📰 Step 1: Collecting news for topic: ${input.newsType}`);
+      logger.info(`Step 1: Collecting news for topic: ${input.newsType}`);
       const digest = await collectDailyDigest(
         input.newsType,
         input.language,
@@ -80,7 +80,7 @@ export const createNewsPipeline = () => {
         throw new Error("Collector agent returned empty results");
       }
 
-      logger.info(`✅ Collected ${digest.items.length} articles`);
+      logger.info(`Collected ${digest.items.length} articles`);
       return {
         input,
         digest,
@@ -96,7 +96,7 @@ export const createNewsPipeline = () => {
   // Step 2: Generate audio script
   const audioScriptStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`🎤 Step 2: Generating audio script`);
+      logger.info(`Step 2: Generating audio script`);
       const audioScript = await generateAudioScript(
         context.digest.items.map((item) => ({
           title: item.title,
@@ -106,7 +106,7 @@ export const createNewsPipeline = () => {
         5
       );
 
-      logger.info(`✅ Generated audio script (${audioScript.length} chars)`);
+      logger.info(`Generated audio script (${audioScript.length} chars)`);
       return { ...context, audioScript };
     },
   });
@@ -114,8 +114,8 @@ export const createNewsPipeline = () => {
   // Step 3 & 4: Parallel execution - Interest Tracking + Sentiment Analysis
   const parallelStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`💡 Step 3: Tracking user interests in parallel`);
-      logger.info(`😊 Step 4: Analyzing sentiments in parallel`);
+      logger.info(`Step 3: Tracking user interests in parallel`);
+      logger.info(`Step 4: Analyzing sentiments in parallel`);
 
       const articleTitles = context.digest.items.map((item) => item.title);
       const [suggestedTopics, sentimentResults] = await Promise.all([
@@ -131,8 +131,8 @@ export const createNewsPipeline = () => {
       const topics = Array.isArray(suggestedTopics)
         ? suggestedTopics
         : [suggestedTopics];
-      logger.info(`✅ Suggested topics: ${topics.join(", ")}`);
-      logger.info(`✅ Analyzed sentiments for ${sentimentResults.length} articles`);
+      logger.info(`Suggested topics: ${topics.join(", ")}`);
+      logger.info(`Analyzed sentiments for ${sentimentResults.length} articles`);
 
       return { ...context, suggestedTopics: topics, sentimentResults };
     },
@@ -141,7 +141,7 @@ export const createNewsPipeline = () => {
   // Step 5: Generate audio file
   const audioGenerationStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`🔊 Step 5: Generating audio file`);
+      logger.info(`Step 5: Generating audio file`);
       const audioBuffer = await generateAudio(
         context.audioScript,
         context.input.language
@@ -155,7 +155,7 @@ export const createNewsPipeline = () => {
         audioFileName
       );
       
-      logger.info(`✅ Audio file generated and uploaded: ${audioFileName}`);
+      logger.info(`Audio file generated and uploaded: ${audioFileName}`);
       logger.info(`🔗 Audio URL: ${audioUrl}`);
 
       return {
@@ -188,7 +188,7 @@ export const createNewsPipeline = () => {
         })
       );
 
-      logger.info(`✅ Articles enriched with sentiment`);
+      logger.info(`Articles enriched with sentiment`);
 
       return { ...context, enrichedArticles };
     },
@@ -230,7 +230,7 @@ export const createNewsPipeline = () => {
         context.input.userId
       );
 
-      logger.info(`✅ PDF generated and uploaded`);
+      logger.info(`PDF generated and uploaded`);
       logger.info(`🔗 PDF URL: ${pdfUrl}`);
 
       return { ...context, pdfUrl, enrichedArticles };
@@ -240,7 +240,7 @@ export const createNewsPipeline = () => {
   // Step 8: Send email with attachments
   const emailStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineOutput> => {
-      logger.info(`📧 Step 8: Sending email to ${context.input.email}`);
+      logger.info(`Step 8: Sending email to ${context.input.email}`);
 
       const enrichedArticles = context.enrichedArticles || context.digest.items.map(
         (item, index) => ({
@@ -270,7 +270,7 @@ export const createNewsPipeline = () => {
         }
       );
 
-      logger.info(`✅ Email sent successfully`);
+      logger.info(`Email sent successfully`);
 
       return {
         newsCollected: enrichedArticles.length,
@@ -305,7 +305,7 @@ export const executePipeline = async (
   const pipeline = createNewsPipeline();
 
   try {
-    logger.info(`🚀 Starting pipeline for user: ${input.userId}`, {
+    logger.info(`Starting pipeline for user: ${input.userId}`, {
       newsType: input.newsType,
       language: input.language,
     });
@@ -322,7 +322,7 @@ export const executePipeline = async (
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
-    logger.error(`❌ Pipeline failed: ${errorMessage}`, error);
+    logger.error(`Pipeline failed: ${errorMessage}`, error);
     throw error;
   }
 };
