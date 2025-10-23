@@ -26,7 +26,7 @@ export async function analyzeSentiment(text: string): Promise<SentimentResult> {
   }
 
   const model = new ChatGoogleGenerativeAI({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.0-flash",
     temperature: 0.1,
     apiKey: process.env.GOOGLE_API_KEY,
   });
@@ -88,7 +88,7 @@ export async function analyzeSentimentsBatch(
   }
 
   const model = new ChatGoogleGenerativeAI({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.0-flash",
     temperature: 0.1,
     apiKey: process.env.GOOGLE_API_KEY,
   });

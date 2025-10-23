@@ -145,8 +145,104 @@ export async function generateDigestPDF(
     page.drawText(`Page ${pageNum}`, { x: 595 - margin - 30, y: 58, size: 7, font: helvetica, color: rgb(0.4, 0.4, 0.4) });
   };
 
-  // PAGES 1-5: Original pages (keeping existing implementation)
-  // [Previous page generation code remains the same]
+  // PAGES 1-5: Article Display Pages
+  let pageNumber = 1;
+  let articlesPerPage = 3;
+  let currentPageArticles = 0;
+  let articlePage = pdfDoc.addPage([595, 842]);
+  let articleYPos = addHeader(articlePage, "TOP STORIES");
+
+  for (let i = 0; i < articles.length; i++) {
+    const article = articles[i];
+
+    // Add new page if needed
+    if (currentPageArticles >= articlesPerPage) {
+      addFooter(articlePage, pageNumber);
+      pageNumber++;
+      if (pageNumber <= 5) {
+        articlePage = pdfDoc.addPage([595, 842]);
+        articleYPos = addHeader(articlePage, `TOP STORIES (CONTINUED)`);
+        currentPageArticles = 0;
+      } else {
+        break; // Stop after 5 pages
+      }
+    }
+
+    articleYPos -= 20;
+
+    // Article title
+    const titleLines = wrapText(article.title, 80);
+    articlePage.drawText(titleLines[0], { x: margin, y: articleYPos, size: 12, font: timesBold, color: rgb(0, 0, 0) });
+    if (titleLines.length > 1) {
+      articleYPos -= 14;
+      articlePage.drawText(titleLines.slice(1).join(" "), { x: margin, y: articleYPos, size: 11, font: timesBold, color: rgb(0, 0, 0) });
+    }
+    articleYPos -= 16;
+
+    // Metadata row (source, date, sentiment)
+    const metadataText = `${article.source || "Unknown Source"} • ${article.pubDate || "Date N/A"}`;
+    articlePage.drawText(metadataText, { x: margin, y: articleYPos, size: 8, font: helvetica, color: rgb(0.5, 0.5, 0.5) });
+
+    // Sentiment badge
+    const sentimentColor = 
+      article.sentiment === "positive" ? rgb(0, 0.6, 0) :
+      article.sentiment === "negative" ? rgb(0.8, 0, 0) :
+      rgb(0.4, 0.4, 0.4);
+    
+    articlePage.drawRectangle({ 
+      x: 595 - margin - 80, 
+      y: articleYPos - 10, 
+      width: 70, 
+      height: 14, 
+      color: sentimentColor, 
+      borderWidth: 0
+    });
+    
+    articlePage.drawText(article.sentiment.toUpperCase(), { 
+      x: 595 - margin - 75, 
+      y: articleYPos - 7, 
+      size: 8, 
+      font: helveticaBold, 
+      color: rgb(1, 1, 1) 
+    });
+
+    articleYPos -= 20;
+
+    // Article summary
+    const summaryLines = wrapText(article.summary, 85);
+    const linesToShow = Math.min(summaryLines.length, 4); // Max 4 lines of summary
+
+    for (let j = 0; j < linesToShow; j++) {
+      articlePage.drawText(summaryLines[j], { x: margin, y: articleYPos, size: 9, font: helvetica, color: rgb(0.2, 0.2, 0.2) });
+      articleYPos -= 12;
+    }
+
+    if (summaryLines.length > 4) {
+      articlePage.drawText("...", { x: margin, y: articleYPos, size: 9, font: helvetica, color: rgb(0.5, 0.5, 0.5) });
+      articleYPos -= 12;
+    }
+
+    // Topic badge
+    articlePage.drawRectangle({ x: margin, y: articleYPos - 12, width: 60, height: 12, color: rgb(0.9, 0.9, 0.9), borderWidth: 0.5, borderColor: rgb(0, 0, 0) });
+    articlePage.drawText(article.topic, { x: margin + 4, y: articleYPos - 9, size: 7, font: helvetica, color: rgb(0, 0, 0) });
+
+    articleYPos -= 25;
+    currentPageArticles++;
+
+    // Add page break marker if needed
+    if (articleYPos < 100 && pageNumber < 5) {
+      addFooter(articlePage, pageNumber);
+      pageNumber++;
+      articlePage = pdfDoc.addPage([595, 842]);
+      articleYPos = addHeader(articlePage, `TOP STORIES (CONTINUED)`);
+      currentPageArticles = 0;
+    }
+  }
+
+  // Finalize pages 1-5
+  if (pageNumber <= 5) {
+    addFooter(articlePage, pageNumber);
+  }
 
   // PAGE 6: Extended Analytics
   let page = pdfDoc.addPage([595, 842]);

@@ -72,6 +72,13 @@ const FEEDS: Record<string, string[]> = {
     "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
     "https://feeds.feedburner.com/TechCrunch/",
     "https://www.wired.com/feed/rss"
+  ],
+  state: [
+    // Default state feeds - will be filtered by location
+    "https://www.thehindu.com/news/national/feeder/default.rss",
+    "https://indianexpress.com/section/india/feed/",
+    "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
+    "https://www.hindustantimes.com/feeds/rss/india-news/index.xml"
   ]
 };
 
@@ -181,9 +188,9 @@ export async function collectDailyDigest(
   }
 
   const model = new ChatGoogleGenerativeAI({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.0-flash",
     temperature: 0.2,
-    apiKey: process.env.GOOGLE_API_KEY
+    apiKey: process.env.GOOGLE_API_KEY,
   });
 
   const jsonExample = JSON.stringify({

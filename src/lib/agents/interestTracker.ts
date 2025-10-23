@@ -1,12 +1,30 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
+import {
+  getUserInterestsFromDB,
+  saveUserInterestsToDb,
+  addToBrowsingHistoryDB,
+  getBrowsingHistoryFromDB,
+} from "../storage";
 
-// Database layer (mock - replace with your actual DB)
+// Fall back to in-memory storage if DB is unavailable
 const userInterestsDB: Map<string, Record<string, number>> = new Map();
 const browsingHistoryDB: Map<string, string[]> = new Map();
 
 export async function getUserInterests(userId: string): Promise<Record<string, number>> {
+  try {
+    // Try to fetch from persistent database
+    const dbInterests = await getUserInterestsFromDB(userId);
+    if (Object.keys(dbInterests).length > 0) {
+      console.log(`📊 Loaded interests from database for user ${userId}`);
+      return dbInterests;
+    }
+  } catch (err) {
+    console.warn(`⚠️ Failed to fetch from DB, using in-memory storage`);
+  }
+
+  // Fall back to in-memory storage
   return userInterestsDB.get(userId) || {
     national: 0.3,
     international: 0.3,
@@ -17,15 +35,45 @@ export async function getUserInterests(userId: string): Promise<Record<string, n
 }
 
 export async function updateUserInterests(userId: string, interests: Record<string, number>): Promise<void> {
+  // Always save to in-memory for immediate access
   userInterestsDB.set(userId, interests);
+
+  // Also save to persistent database
+  try {
+    await saveUserInterestsToDb(userId, interests);
+  } catch (err) {
+    console.warn(`⚠️ Failed to save interests to DB, using in-memory only`);
+  }
 }
 
 export async function addToBrowsingHistory(userId: string, articleTitles: string[]): Promise<void> {
+  // Update in-memory storage
   const current = browsingHistoryDB.get(userId) || [];
-  browsingHistoryDB.set(userId, [...current, ...articleTitles].slice(-100)); // Keep last 100
+  browsingHistoryDB.set(userId, [...current, ...articleTitles].slice(-100));
+
+  // Also save to persistent database
+  try {
+    await addToBrowsingHistoryDB(userId, articleTitles);
+  } catch (err) {
+    console.warn(`⚠️ Failed to save browsing history to DB, using in-memory only`);
+  }
 }
 
 export async function getBrowsingHistory(userId: string): Promise<string[]> {
+  try {
+    // Try to fetch from persistent database
+    const dbHistory = await getBrowsingHistoryFromDB(userId);
+    if (dbHistory.length > 0) {
+      console.log(`📚 Loaded browsing history from database for user ${userId}`);
+      // Update in-memory cache
+      browsingHistoryDB.set(userId, dbHistory);
+      return dbHistory;
+    }
+  } catch (err) {
+    console.warn(`⚠️ Failed to fetch history from DB, using in-memory storage`);
+  }
+
+  // Fall back to in-memory storage
   return browsingHistoryDB.get(userId) || [];
 }
 
@@ -77,7 +125,7 @@ export async function suggestRelevantTopics(
   await addToBrowsingHistory(userId, articleTitles);
 
   const model = new ChatGoogleGenerativeAI({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.0-flash",
     temperature: 0.3,
     apiKey: process.env.GOOGLE_API_KEY,
   });

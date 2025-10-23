@@ -1,6 +1,7 @@
 import { supabase, supabaseAdmin } from "./supabaseClient";
 
 const PDF_BUCKET = "pdf-digests";
+const AUDIO_BUCKET = "audio-digests";
 
 export async function uploadPDFToSupabase(
   pdfBuffer: Uint8Array,
@@ -32,6 +33,40 @@ export async function uploadPDFToSupabase(
     return publicUrl;
   } catch (err) {
     console.error("❌ Error uploading PDF to Supabase:", err);
+    throw err;
+  }
+}
+
+export async function uploadAudioToSupabase(
+  audioBuffer: Buffer,
+  userId: string,
+  fileName: string
+): Promise<string> {
+  try {
+    const storagePath = `${userId}/${fileName}`;
+
+    console.log(`📤 Uploading audio to Supabase: ${storagePath}`);
+
+    const { data, error } = await supabaseAdmin.storage
+      .from(AUDIO_BUCKET)
+      .upload(storagePath, audioBuffer, {
+        contentType: "audio/mpeg",
+        upsert: true,
+      });
+
+    if (error) {
+      throw new Error(`Upload failed: ${error.message}`);
+    }
+
+    console.log(`✅ Audio uploaded successfully: ${data.path}`);
+
+    const {
+      data: { publicUrl },
+    } = supabaseAdmin.storage.from(AUDIO_BUCKET).getPublicUrl(storagePath);
+
+    return publicUrl;
+  } catch (err) {
+    console.error("❌ Error uploading audio to Supabase:", err);
     throw err;
   }
 }
@@ -198,5 +233,235 @@ export async function ensurePDFBucketExists() {
   } catch (err) {
     console.error("❌ Error ensuring PDF bucket:", err);
     throw err;
+  }
+}
+
+export async function ensureAudioBucketExists() {
+  try {
+    const { data, error } = await supabase.storage.listBuckets();
+
+    if (error) {
+      throw new Error(`Failed to list buckets: ${error.message}`);
+    }
+
+    const bucketExists = data?.some((bucket) => bucket.name === AUDIO_BUCKET);
+
+    if (!bucketExists) {
+      console.log(`📦 Creating audio bucket: ${AUDIO_BUCKET}`);
+
+      const { error: createError } = await supabase.storage.createBucket(
+        AUDIO_BUCKET,
+        {
+          public: true,
+          fileSizeLimit: 104857600, // 100MB for audio
+        }
+      );
+
+      if (createError) {
+        throw new Error(`Failed to create bucket: ${createError.message}`);
+      }
+
+      console.log(`✅ Audio bucket created successfully`);
+    } else {
+      console.log(`✅ Audio bucket already exists`);
+    }
+  } catch (err) {
+    console.error("❌ Error ensuring audio bucket:", err);
+    throw err;
+  }
+}
+
+// ========== PERSISTENT INTEREST TRACKING ==========
+
+export async function getUserInterestsFromDB(
+  userId: string
+): Promise<Record<string, number>> {
+  try {
+    const { data, error } = await supabase
+      .from("user_interests")
+      .select("interests_data")
+      .eq("user_id", userId)
+      .single();
+
+    if (error && error.code !== "PGRST116") {
+      console.warn(`⚠️ Failed to fetch interests: ${error.message}`);
+      return {
+        national: 0.3,
+        international: 0.3,
+        sports: 0.2,
+        technology: 0.2,
+        all: 0.5,
+      };
+    }
+
+    if (!data) {
+      return {
+        national: 0.3,
+        international: 0.3,
+        sports: 0.2,
+        technology: 0.2,
+        all: 0.5,
+      };
+    }
+
+    return data.interests_data || {};
+  } catch (err) {
+    console.error("❌ Error fetching user interests:", err);
+    return {
+      national: 0.3,
+      international: 0.3,
+      sports: 0.2,
+      technology: 0.2,
+      all: 0.5,
+    };
+  }
+}
+
+export async function saveUserInterestsToDb(
+  userId: string,
+  interests: Record<string, number>
+): Promise<void> {
+  try {
+    const { data: existingUser } = await supabase
+      .from("user_interests")
+      .select("id")
+      .eq("user_id", userId)
+      .single();
+
+    if (existingUser?.id) {
+      const { error } = await supabase
+        .from("user_interests")
+        .update({
+          interests_data: interests,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId);
+
+      if (error) {
+        console.warn(`⚠️ Failed to update interests: ${error.message}`);
+      } else {
+        console.log(`✅ Updated interests for user ${userId}`);
+      }
+    } else {
+      const { error } = await supabase.from("user_interests").insert({
+        user_id: userId,
+        interests_data: interests,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        console.warn(`⚠️ Failed to save interests: ${error.message}`);
+      } else {
+        console.log(`✅ Saved interests for user ${userId}`);
+      }
+    }
+  } catch (err) {
+    console.error("❌ Error saving user interests:", err);
+  }
+}
+
+export async function addToBrowsingHistoryDB(
+  userId: string,
+  articleTitles: string[]
+): Promise<void> {
+  try {
+    const { data: existingHistory } = await supabase
+      .from("user_browsing_history")
+      .select("article_titles")
+      .eq("user_id", userId)
+      .single();
+
+    const currentTitles = existingHistory?.article_titles || [];
+    const updatedTitles = [...currentTitles, ...articleTitles].slice(-100);
+
+    const { data: existingUser } = await supabase
+      .from("user_browsing_history")
+      .select("id")
+      .eq("user_id", userId)
+      .single();
+
+    if (existingUser?.id) {
+      const { error } = await supabase
+        .from("user_browsing_history")
+        .update({
+          article_titles: updatedTitles,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId);
+
+      if (error) {
+        console.warn(`⚠️ Failed to update browsing history: ${error.message}`);
+      } else {
+        console.log(`✅ Updated browsing history for user ${userId}`);
+      }
+    } else {
+      const { error } = await supabase.from("user_browsing_history").insert({
+        user_id: userId,
+        article_titles: updatedTitles,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        console.warn(`⚠️ Failed to save browsing history: ${error.message}`);
+      } else {
+        console.log(`✅ Saved browsing history for user ${userId}`);
+      }
+    }
+  } catch (err) {
+    console.error("❌ Error saving browsing history:", err);
+  }
+}
+
+export async function getBrowsingHistoryFromDB(
+  userId: string
+): Promise<string[]> {
+  try {
+    const { data, error } = await supabase
+      .from("user_browsing_history")
+      .select("article_titles")
+      .eq("user_id", userId)
+      .single();
+
+    if (error && error.code !== "PGRST116") {
+      console.warn(`⚠️ Failed to fetch browsing history: ${error.message}`);
+      return [];
+    }
+
+    return data?.article_titles || [];
+  } catch (err) {
+    console.error("❌ Error fetching browsing history:", err);
+    return [];
+  }
+}
+
+export async function clearUserData(userId: string): Promise<void> {
+  try {
+    console.log(`🗑️ Clearing all data for user ${userId}`);
+
+    const { error: interestsError } = await supabase
+      .from("user_interests")
+      .delete()
+      .eq("user_id", userId);
+
+    const { error: historyError } = await supabase
+      .from("user_browsing_history")
+      .delete()
+      .eq("user_id", userId);
+
+    if (interestsError) {
+      console.warn(`⚠️ Error clearing interests: ${interestsError.message}`);
+    }
+
+    if (historyError) {
+      console.warn(`⚠️ Error clearing history: ${historyError.message}`);
+    }
+
+    if (!interestsError && !historyError) {
+      console.log(`✅ Cleared all user data for ${userId}`);
+    }
+  } catch (err) {
+    console.error("❌ Error clearing user data:", err);
   }
 }
