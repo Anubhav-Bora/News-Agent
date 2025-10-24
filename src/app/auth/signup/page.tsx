@@ -5,40 +5,62 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import Link from 'next/link';
 
-export default function SignIn() {
+export default function SignUp() {
   const router = useRouter();
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signUp, signInWithGoogle } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSignIn = async (e: React.FormEvent) => {
+  const validatePassword = (pass: string) => {
+    if (pass.length < 6) {
+      return 'Password must be at least 6 characters long';
+    }
+    return null;
+  };
+
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
     setLoading(true);
 
+    // Validate inputs
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      setLoading(false);
+      return;
+    }
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      setError(passwordError);
+      setLoading(false);
+      return;
+    }
+
     try {
-      const { data, error: authError } = await signIn(email, password);
+      const { data, error: authError } = await signUp(email, password);
 
       if (authError) {
         setError(authError.message);
       } else if (data.user) {
-        setSuccess('Sign in successful! Redirecting...');
+        setSuccess('Account created! Check your email to confirm your account.');
         setTimeout(() => {
-          router.push('/');
-        }, 1000);
+          router.push('/auth/signin');
+        }, 2000);
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred during sign in');
+      setError(err.message || 'An error occurred during sign up');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignUp = async () => {
     setError(null);
     setLoading(true);
 
@@ -49,7 +71,7 @@ export default function SignIn() {
         setError(authError.message);
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred during Google sign in');
+      setError(err.message || 'An error occurred during Google sign up');
     } finally {
       setLoading(false);
     }
@@ -58,8 +80,8 @@ export default function SignIn() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-white rounded-lg shadow-lg p-8">
-        <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">Welcome Back</h1>
-        <p className="text-center text-gray-600 mb-6">Sign in to your News Agent account</p>
+        <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">Create Account</h1>
+        <p className="text-center text-gray-600 mb-6">Join News Agent and get started</p>
 
         {error && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
@@ -73,7 +95,7 @@ export default function SignIn() {
           </div>
         )}
 
-        <form onSubmit={handleSignIn} className="space-y-4 mb-6">
+        <form onSubmit={handleSignUp} className="space-y-4 mb-6">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
               Email Address
@@ -104,6 +126,23 @@ export default function SignIn() {
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none disabled:bg-gray-50 disabled:cursor-not-allowed"
               placeholder="••••••••"
             />
+            <p className="text-xs text-gray-500 mt-1">Minimum 6 characters</p>
+          </div>
+
+          <div>
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
+              Confirm Password
+            </label>
+            <input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              disabled={loading}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none disabled:bg-gray-50 disabled:cursor-not-allowed"
+              placeholder="••••••••"
+            />
           </div>
 
           <button
@@ -111,7 +150,7 @@ export default function SignIn() {
             disabled={loading}
             className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white font-semibold py-2 px-4 rounded-lg transition duration-200"
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Creating Account...' : 'Sign Up'}
           </button>
         </form>
 
@@ -125,7 +164,7 @@ export default function SignIn() {
         </div>
 
         <button
-          onClick={handleGoogleSignIn}
+          onClick={handleGoogleSignUp}
           disabled={loading}
           type="button"
           className="w-full flex items-center justify-center gap-2 border border-gray-300 hover:border-gray-400 disabled:border-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg transition duration-200 disabled:bg-gray-50 disabled:cursor-not-allowed"
@@ -137,13 +176,13 @@ export default function SignIn() {
               height="20"
             />
           </svg>
-          {loading ? 'Signing in...' : 'Google'}
+          {loading ? 'Signing up...' : 'Google'}
         </button>
 
         <p className="text-center text-gray-600 mt-6">
-          Don't have an account?{' '}
-          <Link href="/auth/signup" className="text-indigo-600 hover:text-indigo-700 font-semibold">
-            Sign Up
+          Already have an account?{' '}
+          <Link href="/auth/signin" className="text-indigo-600 hover:text-indigo-700 font-semibold">
+            Sign In
           </Link>
         </p>
       </div>
