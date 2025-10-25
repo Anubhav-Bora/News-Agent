@@ -13,6 +13,7 @@ import logger from "./logger";
 
 export interface PipelineInput {
   userId: string;
+  userName?: string;
   email: string;
   language: string;
   newsType: "all" | "tech" | "national" | "international" | "sports" | "state";
@@ -282,15 +283,17 @@ export const createNewsPipeline = () => {
         attachmentsData.audioFileName = context.audioFileName;
       }
 
+      const userName = context.input.userName || context.input.email?.split('@')[0] || 'User';
+      
       const emailSent = await sendEmailDigest(
         context.input.email,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         enrichedArticles as any,
-        context.input.userId,
+        userName,
         Object.keys(attachmentsData).length > 0 ? attachmentsData : undefined
       );
 
-      logger.info(`Email sent successfully`);
+      logger.info(`Email sent successfully to ${userName}`);
 
       return {
         newsCollected: enrichedArticles.length,

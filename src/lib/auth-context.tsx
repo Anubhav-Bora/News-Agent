@@ -8,7 +8,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string) => Promise<{ error: AuthError | unknown; data: any }>;
+  signUp: (email: string, password: string, fullName?: string) => Promise<{ error: AuthError | unknown; data: any }>;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | unknown; data: any }>;
   signInWithGoogle: () => Promise<{ error: AuthError | unknown; data: any }>;
   signOut: () => Promise<{ error: AuthError | unknown }>;
@@ -42,13 +42,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription?.unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, fullName?: string) => {
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+          data: {
+            full_name: fullName || '',
+          },
         },
       });
       return { data, error };

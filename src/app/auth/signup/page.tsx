@@ -8,6 +8,7 @@ import Link from 'next/link';
 export default function SignUp() {
   const router = useRouter();
   const { signUp, signInWithGoogle } = useAuth();
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -43,7 +44,7 @@ export default function SignUp() {
     }
 
     try {
-      const { data, error: authError } = await signUp(email, password);
+      const { data, error: authError } = await signUp(email, password, fullName);
 
       if (authError) {
         setError((authError as Error).message || 'An error occurred');
@@ -98,6 +99,22 @@ export default function SignUp() {
         )}
 
         <form onSubmit={handleSignUp} className="space-y-4 mb-6">
+          <div>
+            <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
+              Full Name
+            </label>
+            <input
+              id="fullName"
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              required
+              disabled={loading}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none disabled:bg-gray-50 disabled:cursor-not-allowed"
+              placeholder="John Doe"
+            />
+          </div>
+
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
               Email Address

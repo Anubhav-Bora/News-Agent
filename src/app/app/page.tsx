@@ -108,13 +108,16 @@ export default function AppPage() {
 
     setIsLoading(true)
     try {
+      const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
+      
       const response = await fetch("/api/run-pipeline", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          userId: "user-" + Date.now(),
+          userId: user?.id || "user-" + Date.now(),
+          userName: userName,
           email: email,
           language: selectedLanguage,
           newsType: selectedCategory === "state" ? "state" : selectedCategory,
