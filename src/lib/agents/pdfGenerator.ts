@@ -1,6 +1,9 @@
 ﻿import { PDFDocument, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import dayjs from "dayjs";
 import { uploadPDFToSupabase, savePDFMetadata } from "../storage";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatPromptTemplate } from "@langchain/core/prompts";
+import { StringOutputParser } from "@langchain/core/output_parsers";
 
 interface Article {
   title: string;
@@ -29,6 +32,101 @@ function wrapText(text: string, maxCharsPerLine: number): string[] {
 
   if (currentLine) lines.push(currentLine.trim());
   return lines;
+}
+
+// Language mapping for translation
+const languageMap: Record<string, string> = {
+  "hi": "Hindi",
+  "hindi": "Hindi",
+  "en": "English",
+  "english": "English",
+  "gu": "Gujarati",
+  "gujarati": "Gujarati",
+  "mr": "Marathi",
+  "marathi": "Marathi",
+  "as": "Assamese",
+  "assamese": "Assamese",
+  "bn": "Bengali",
+  "bengali": "Bengali",
+  "ta": "Tamil",
+  "tamil": "Tamil",
+  "te": "Telugu",
+  "telugu": "Telugu",
+  "kn": "Kannada",
+  "kannada": "Kannada",
+  "ml": "Malayalam",
+  "malayalam": "Malayalam",
+  "pa": "Punjabi",
+  "punjabi": "Punjabi",
+};
+
+async function translateArticles(articles: Article[], targetLanguage: string): Promise<Article[]> {
+  // If English or already in target language, no translation needed
+  if (targetLanguage.toLowerCase() === "en" || targetLanguage.toLowerCase() === "english") {
+    return articles;
+  }
+
+  if (!process.env.GOOGLE_API_KEY) {
+    console.warn("⚠️ Translation skipped: Missing GOOGLE_API_KEY");
+    return articles;
+  }
+
+  try {
+    const languageName = languageMap[targetLanguage.toLowerCase()] || targetLanguage;
+    
+    const model = new ChatGoogleGenerativeAI({
+      model: "gemini-2.0-flash",
+      temperature: 0.3,
+      apiKey: process.env.GOOGLE_API_KEY,
+    });
+
+    const translatedArticles: Article[] = [];
+
+    for (const article of articles) {
+      try {
+        const promptTemplate = ChatPromptTemplate.fromTemplate(
+          `Translate the following news article to ${languageName}. Keep the meaning intact and maintain professional tone.
+
+Title: {title}
+Summary: {summary}
+
+Return ONLY the translation in the format:
+TITLE: [translated title]
+SUMMARY: [translated summary]
+
+Do NOT include any other text.`
+        );
+
+        const chain = promptTemplate.pipe(model).pipe(new StringOutputParser());
+
+        const response = await chain.invoke({
+          title: article.title,
+          summary: article.summary,
+        });
+
+        // Parse the translated response
+        const titleMatch = response.match(/TITLE:\s*(.+?)(?:\nSUMMARY:|$)/);
+        const summaryMatch = response.match(/SUMMARY:\s*(.+?)$/);
+
+        const translatedTitle = titleMatch ? titleMatch[1].trim() : article.title;
+        const translatedSummary = summaryMatch ? summaryMatch[1].trim() : article.summary;
+
+        translatedArticles.push({
+          ...article,
+          title: translatedTitle,
+          summary: translatedSummary,
+        });
+      } catch (err) {
+        console.warn(`⚠️ Failed to translate article: ${article.title}. Using original.`);
+        translatedArticles.push(article);
+      }
+    }
+
+    return translatedArticles;
+  } catch (err) {
+    console.warn(`⚠️ Translation failed. Using original articles.`);
+    return articles;
+  }
 }
 
 function extractKeyPhrases(articles: Article[]): Map<string, number> {
@@ -99,11 +197,34 @@ function generateRecommendations(
   return recommendations.length > 0 ? recommendations : ["Continue current monitoring strategy. No alerts at this time."];
 }
 
+// Helper function to sanitize text for PDF rendering
+function sanitizeTextForPDF(text: string): string {
+  // For PDF compatibility, remove only problematic control characters
+  // Keep the actual content (including Unicode) as-is
+  return text
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '') // Remove control characters
+    .trim();
+}
+
 export async function generateDigestPDF(
   articles: Article[],
   historicalDigests: Record<string, { topicCounts: Record<string, number>; sentimentCounts: Record<string, number> }>,
-  userId: string
-): Promise<string> {
+  userId: string,
+  language = "en"
+): Promise<string | null> {
+  // Translate articles to target language
+  console.log(`📝 Translating articles to ${languageMap[language.toLowerCase()] || language}...`);
+  let articlesToProcess = await translateArticles(articles, language);
+
+  // Sanitize article content for PDF compatibility
+  const sanitizedArticles = articlesToProcess.map(article => ({
+    ...article,
+    title: sanitizeTextForPDF(article.title),
+    summary: sanitizeTextForPDF(article.summary),
+    source: article.source ? sanitizeTextForPDF(article.source) : undefined,
+    topic: sanitizeTextForPDF(article.topic),
+  }));
+
   const pdfDoc = await PDFDocument.create();
   const timesFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
   const timesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
@@ -113,10 +234,10 @@ export async function generateDigestPDF(
   const sentimentCounts = { positive: 0, negative: 0, neutral: 0 };
   const topicCounts: Record<string, number> = {};
   const sourceCount: Record<string, number> = {};
-  const topicSentiments = calculateSentimentByTopic(articles);
-  const keyPhrases = extractKeyPhrases(articles);
+  const topicSentiments = calculateSentimentByTopic(sanitizedArticles);
+  const keyPhrases = extractKeyPhrases(sanitizedArticles);
   
-  for (const a of articles) {
+  for (const a of sanitizedArticles) {
     sentimentCounts[a.sentiment]++;
     topicCounts[a.topic] = (topicCounts[a.topic] || 0) + 1;
     if (a.source) {
@@ -129,11 +250,39 @@ export async function generateDigestPDF(
   const margin = 35;
   const pageWidth = 595 - 2 * margin;
 
+  // Map language codes to display names
+  const languageNames: Record<string, string> = {
+    "hi": "हिंदी",
+    "en": "English",
+    "gu": "ગુજરાતી",
+    "mr": "मराठी",
+    "as": "অসমীয়া",
+    "bn": "বাংলা",
+    "ta": "தமிழ்",
+    "te": "తెలుగు",
+    "kn": "ಕನ್ನಡ",
+    "ml": "മലയാളം",
+    "pa": "ਪੰਜਾਬੀ",
+    "hindi": "हिंदी",
+    "english": "English",
+    "gujarati": "ગુજરાતી",
+    "marathi": "मराठी",
+    "assamese": "অসমীয়া",
+    "bengali": "বাংলা",
+    "tamil": "தமிழ்",
+    "telugu": "తెలుగు",
+    "kannada": "ಕನ್ನಡ",
+    "malayalam": "മലയാളം",
+    "punjabi": "ਪੰਜਾਬੀ",
+  };
+
+  const displayLanguage = languageNames[language.toLowerCase()] || language;
+
   // Helper function to add header
   const addHeader = (page: PDFPage, title: string) => {
     let yPos = 790;
     page.drawText("THE DAILY DIGEST", { x: margin, y: yPos, size: 10, font: timesBold, color: rgb(0, 0, 0) });
-    page.drawText(title, { x: 595 - margin - 120, y: yPos, size: 10, font: timesBold, color: rgb(0, 0, 0) });
+    page.drawText(`${title} (${displayLanguage})`, { x: 595 - margin - 200, y: yPos, size: 10, font: timesBold, color: rgb(0, 0, 0) });
     yPos -= 8;
     page.drawLine({ start: { x: margin, y: yPos }, end: { x: 595 - margin, y: yPos }, thickness: 1.5, color: rgb(0, 0, 0) });
     return yPos - 20;
@@ -152,8 +301,8 @@ export async function generateDigestPDF(
   let articlePage = pdfDoc.addPage([595, 842]);
   let articleYPos = addHeader(articlePage, "TOP STORIES");
 
-  for (let i = 0; i < articles.length; i++) {
-    const article = articles[i];
+  for (let i = 0; i < sanitizedArticles.length; i++) {
+    const article = sanitizedArticles[i];
 
     // Add new page if needed
     if (currentPageArticles >= articlesPerPage) {

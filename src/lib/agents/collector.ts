@@ -74,12 +74,48 @@ const FEEDS: Record<string, string[]> = {
     "https://www.wired.com/feed/rss"
   ],
   state: [
-    // Default state feeds - will be filtered by location
     "https://www.thehindu.com/news/national/feeder/default.rss",
     "https://indianexpress.com/section/india/feed/",
     "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
     "https://www.hindustantimes.com/feeds/rss/india-news/index.xml"
   ]
+};
+
+// State-specific keywords mapping for filtering articles
+const STATE_KEYWORDS: Record<string, string[]> = {
+  "ap": ["Andhra Pradesh", "AP", "Hyderabad", "Vijayawada"],
+  "ar": ["Arunachal Pradesh", "Itanagar"],
+  "as": ["Assam", "Guwahati", "Assamese"],
+  "br": ["Bihar", "Patna", "Bihari"],
+  "cg": ["Chhattisgarh", "Raipur"],
+  "ga": ["Goa", "Panaji"],
+  "gj": ["Gujarat", "Ahmedabad", "Gujarati"],
+  "hr": ["Haryana", "Chandigarh", "Gurugram"],
+  "hp": ["Himachal Pradesh", "Shimla"],
+  "jk": ["Jammu", "Kashmir", "Srinagar", "J&K"],
+  "jh": ["Jharkhand", "Ranchi"],
+  "ka": ["Karnataka", "Bangalore", "Bengaluru", "Kannada"],
+  "kl": ["Kerala", "Thiruvananthapuram", "Kochi", "Malayalam"],
+  "mp": ["Madhya Pradesh", "Bhopal"],
+  "mh": ["Maharashtra", "Mumbai", "Pune", "Marathi"],
+  "mn": ["Manipur", "Imphal"],
+  "ml": ["Meghalaya", "Shillong"],
+  "mz": ["Mizoram", "Aizawl"],
+  "nl": ["Nagaland", "Kohima"],
+  "od": ["Odisha", "Bhubaneswar", "Odia"],
+  "pb": ["Punjab", "Chandigarh", "Punjabi"],
+  "rj": ["Rajasthan", "Jaipur"],
+  "sk": ["Sikkim", "Gangtok"],
+  "tn": ["Tamil Nadu", "Chennai", "Tamil"],
+  "tg": ["Telangana", "Hyderabad", "Telugu"],
+  "tr": ["Tripura", "Agartala"],
+  "up": ["Uttar Pradesh", "Lucknow"],
+  "uk": ["Uttarakhand", "Dehradun"],
+  "wb": ["West Bengal", "Kolkata", "Bengali"],
+  "dl": ["Delhi", "New Delhi"],
+  "ch": ["Chandigarh"],
+  "ld": ["Lakshadweep"],
+  "py": ["Puducherry", "Pondicherry"]
 };
 
 async function fetchRssItems(feedUrl: string) {
@@ -163,16 +199,37 @@ async function fetchWeatherData(location: string = "New York"): Promise<Weather 
 export async function collectDailyDigest(
   topic = "all",
   language = "en",
-  location?: string
+  location?: string,
+  state?: string
 ): Promise<DailyDigest> {
   const feeds = FEEDS[topic] ?? FEEDS["all"];
   
-  console.log(`📰 Collecting digest for topic: ${topic}`);
+  console.log(`📰 Collecting digest for topic: ${topic}${state ? ` (State: ${state})` : ""}`);
   
   const rawGroups = await Promise.all(feeds.map((f) => fetchRssItems(f).catch(() => [])));
-  const rawArticles = uniqueByLink(rawGroups.flat())
+  let rawArticles = uniqueByLink(rawGroups.flat())
     .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
     .slice(0, 50);
+
+  // Filter articles by state if state is provided and topic is "state"
+  if (topic === "state" && state && STATE_KEYWORDS[state]) {
+    const stateKeywords = STATE_KEYWORDS[state];
+    const keywordRegex = new RegExp(stateKeywords.join("|"), "i");
+    
+    rawArticles = rawArticles.filter(article => 
+      keywordRegex.test(article.title) || keywordRegex.test(article.description)
+    );
+    
+    console.log(`🔍 Filtered to ${rawArticles.length} articles for state: ${state}`);
+    
+    // If no articles found for the state, fall back to unfiltered results
+    if (rawArticles.length === 0) {
+      console.warn(`⚠️ No articles found for state: ${state}. Using general national news instead.`);
+      rawArticles = uniqueByLink(rawGroups.flat())
+        .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
+        .slice(0, 50);
+    }
+  }
 
   const articlesText = rawArticles
     .map(
@@ -193,34 +250,33 @@ export async function collectDailyDigest(
     apiKey: process.env.GOOGLE_API_KEY,
   });
 
-  const jsonExample = JSON.stringify({
-    date: new Date().toISOString().split("T")[0],
-    language,
-    topic,
-    items: Array(15).fill({ title: "", link: "", summary: "", source: "", pubDate: "" })
-  });
-
-  const promptContent = `You are a precise multilingual news curator. IMPORTANT: Return ONLY valid JSON, no markdown or extra text.
+  const promptContent = `You are a precise multilingual news curator. IMPORTANT: Return ONLY valid JSON, no markdown, no code blocks, no extra text.
 
 Today's date is ${new Date().toISOString().split("T")[0]}. 
 User requested topic: ${topic}
 Language: ${language}
 
-From the articles below, select the 15 most important and recent headlines.
-For each article, provide these fields EXACTLY:
-- title: brief headline (${language})
-- link: original URL or null
-- summary: 100-150 words (${language})  
-- source: news source name or null
-- pubDate: publication date or null
+From the articles below, select up to 15 most important and recent headlines.
+For each article, STRICTLY provide these fields:
+- title: brief headline string in ${language}
+- link: original URL string or null
+- summary: 100-150 word summary string in ${language}, WITHOUT newlines, with special characters properly escaped
+- source: news source name string or null  
+- pubDate: publication date string or null
 
-RETURN ONLY THIS JSON STRUCTURE, NO OTHER TEXT:
-{
-  "date": "${new Date().toISOString().split("T")[0]}",
-  "language": "${language}",
-  "topic": "${topic}",
-  "items": [array of 15 articles]
-}
+CRITICAL JSON FORMATTING RULES:
+1. Use ONLY double quotes for all strings
+2. Escape ALL quotes inside strings with backslash: \"
+3. Escape ALL newlines as \\n (not actual line breaks)
+4. Escape ALL backslashes as \\\\
+5. NO newlines inside any string values - convert to spaces
+6. Remove special Unicode characters - use ASCII equivalents or transliterate
+7. All numbers without quotes, booleans without quotes
+8. NO trailing commas before ] or }
+9. Return ONLY the JSON object, nothing else - no markdown, no code blocks
+
+Valid JSON example format:
+{"date":"YYYY-MM-DD","language":"${language}","topic":"${topic}","items":[{"title":"Example Title","link":null,"summary":"Example summary text without newlines or special chars.","source":"Example Source","pubDate":null}]}
 
 Raw Articles to Process:
 ${articlesText}`;
@@ -228,13 +284,11 @@ ${articlesText}`;
   const chain = model.pipe(new StringOutputParser());
   const output = await chain.invoke([{ role: "user", content: promptContent }]);
   
-  // Clean the output - remove markdown code blocks
   let cleanedOutput = output
     .replace(/```json\n?/g, "")
     .replace(/```\n?/g, "")
     .trim();
   
-  // Extract JSON from text if wrapped
   const jsonMatch = cleanedOutput.match(/\{\s*"[^"]*"[\s\S]*?\}\s*$/);
   if (jsonMatch) {
     cleanedOutput = jsonMatch[0];
@@ -244,40 +298,92 @@ ${articlesText}`;
   try {
     parsedJson = JSON.parse(cleanedOutput);
   } catch (initialError) {
-    // Try to fix common issues
     try {
-      // Remove newlines that aren't in strings
-      const lines = cleanedOutput.split('\n');
-      let inString = false;
-      let fixedOutput = '';
+      let fixedOutput = cleanedOutput;
       
-      for (const line of lines) {
-        for (const char of line) {
-          if (char === '"' && fixedOutput.charAt(fixedOutput.length - 1) !== '\\') {
+      // Fix unescaped characters in JSON strings
+      fixedOutput = fixedOutput.replace(/: "([^"\\]*(\\.[^"\\]*)*)/g, (match) => {
+        const content = match.slice(3);
+        // Only escape unescaped quotes
+        const escaped = content
+          .replace(/\\([^"\\/bfnrtu])/g, '\\\\$1') // Fix improperly escaped characters
+          .replace(/(?<!\\)"/g, '\\"') // Escape unescaped quotes
+          .replace(/\n(?=(?:[^"]*"[^"]*")*[^"]*$)/g, '\\n') // Escape newlines outside quotes
+          .replace(/\r/g, '\\r')
+          .replace(/\t/g, '\\t');
+        return `: "${escaped}"`;
+      });
+      
+      // Remove newlines outside of JSON strings
+      const lines = fixedOutput.split('\n');
+      let inString = false;
+      let processedOutput = '';
+      
+      for (let i = 0; i < lines.length; i++) {
+        for (let j = 0; j < lines[i].length; j++) {
+          const char = lines[i][j];
+          const prevChar = processedOutput.charAt(processedOutput.length - 1);
+          
+          if (char === '"' && prevChar !== '\\') {
             inString = !inString;
           }
-          fixedOutput += char;
+          processedOutput += char;
         }
-        // Add space instead of newline if we're in a string
-        if (!inString) {
-          fixedOutput += ' ';
+        
+        // Add space instead of newline if inside a string
+        if (!inString && i < lines.length - 1) {
+          processedOutput += ' ';
         }
       }
       
-      // Remove trailing commas
-      fixedOutput = fixedOutput.replace(/,(\s*[}\]])/g, '$1');
+      // Remove trailing commas before closing brackets
+      fixedOutput = processedOutput.replace(/,(\s*[}\]])/g, '$1');
+      
+      // Replace single quotes with double quotes only outside of existing strings
+      fixedOutput = fixedOutput.replace(/: '([^']*)'/g, ': "$1"');
       
       parsedJson = JSON.parse(fixedOutput);
     } catch (fixError) {
-      // Create a minimal valid response
       console.error('JSON parse error - attempting fallback:', initialError);
-      parsedJson = {
-        date: new Date().toISOString().split("T")[0],
-        language,
-        topic,
-        items: []
-      };
-      console.warn(`⚠️ Could not parse model output. Returning empty digest. Model output length: ${output.length}`);
+      
+      try {
+        const articles = [];
+        
+        // Extract title-summary pairs more intelligently
+        const titleMatches = cleanedOutput.match(/"title"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/g) || [];
+        
+        if (titleMatches.length > 0) {
+          for (const match of titleMatches) {
+            const titleContent = match.match(/"title"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
+            if (titleContent) {
+              articles.push({
+                title: titleContent[1].replace(/\\"/g, '"').replace(/\\n/g, ' '),
+                link: null,
+                summary: titleContent[1].replace(/\\"/g, '"').replace(/\\n/g, ' ').slice(0, 150),
+                source: null,
+                pubDate: null
+              });
+            }
+          }
+        }
+        
+        parsedJson = {
+          date: new Date().toISOString().split("T")[0],
+          language,
+          topic,
+          items: articles.slice(0, 15)
+        };
+        
+        console.warn(`⚠️ Could not parse model output. Extracted ${articles.length} articles from text. Model output length: ${output.length}`);
+      } catch (extractError) {
+        parsedJson = {
+          date: new Date().toISOString().split("T")[0],
+          language,
+          topic,
+          items: []
+        };
+        console.warn(`⚠️ Could not parse model output. Returning empty digest. Model output length: ${output.length}`);
+      }
     }
   }
 
@@ -290,7 +396,24 @@ ${articlesText}`;
     }))
   });
 
-  if (!baseDigest.success) throw new Error(`Schema validation failed: ${JSON.stringify(baseDigest.error.errors)}`);
+  if (!baseDigest.success) {
+    console.warn(`Schema validation failed: ${JSON.stringify(baseDigest.error.errors)}`);
+    // Return digest with raw articles if validation fails
+    return {
+      date: new Date().toISOString().split("T")[0],
+      language,
+      topic,
+      items: rawArticles.slice(0, 15).map(a => ({
+        title: a.title,
+        link: a.link || null,
+        summary: a.description?.substring(0, 150) || a.title,
+        source: a.source || null,
+        pubDate: a.pubDate || null,
+        sentiment: "neutral" as const,
+        sentimentScore: 0.5
+      }))
+    };
+  }
 
   // Analyze sentiments in batch using sentiment agent
   console.log(`🔍 Analyzing sentiments for ${baseDigest.data.items.length} articles...`);
@@ -300,7 +423,6 @@ ${articlesText}`;
   }));
   const sentimentResults = await analyzeSentimentsBatch(articlesForSentiment);
 
-  // Enrich items with context and sentiments
   const itemsWithContext = baseDigest.data.items.map((it, idx) => {
     const match: RSSItem | undefined =
       rawArticles.find((r) => {

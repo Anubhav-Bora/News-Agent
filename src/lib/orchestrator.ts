@@ -57,23 +57,20 @@ interface PipelineContext {
   audioBuffer: Buffer;
   audioFileName: string;
   audioUrl?: string;
-  pdfUrl?: string;
+  pdfUrl?: string | null;
   enrichedArticles?: EnrichedArticle[];
 }
 
-/**
- * Create a LangChain-based pipeline orchestrator using RunnableSequence
- * This provides better composition, error handling, and reusability
- */
 export const createNewsPipeline = () => {
   // Step 1: Collect news
   const collectorStep = new RunnableLambda({
     func: async (input: PipelineInput): Promise<PipelineContext> => {
-      logger.info(`Step 1: Collecting news for topic: ${input.newsType}`);
+      logger.info(`Step 1: Collecting news for topic: ${input.newsType}${input.state ? ` (State: ${input.state})` : ""}`);
       const digest = await collectDailyDigest(
         input.newsType,
         input.language,
-        input.location
+        input.location,
+        input.state
       );
 
       if (!digest || digest.items.length === 0) {
@@ -92,18 +89,17 @@ export const createNewsPipeline = () => {
       };
     },
   });
-
-  // Step 2: Generate audio script
   const audioScriptStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`Step 2: Generating audio script`);
+      logger.info(`Step 2: Generating audio script in ${context.input.language}`);
       const audioScript = await generateAudioScript(
         context.digest.items.map((item) => ({
           title: item.title,
           summary: item.summary,
           source: item.source || "Unknown",
         })),
-        5
+        5,
+        context.input.language
       );
 
       logger.info(`Generated audio script (${audioScript.length} chars)`);
@@ -111,7 +107,7 @@ export const createNewsPipeline = () => {
     },
   });
 
-  // Step 3 & 4: Parallel execution - Interest Tracking + Sentiment Analysis
+  
   const parallelStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
       logger.info(`Step 3: Tracking user interests in parallel`);
@@ -138,7 +134,7 @@ export const createNewsPipeline = () => {
     },
   });
 
-  // Step 5: Generate audio file
+  
   const audioGenerationStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
       logger.info(`Step 5: Generating audio file`);
@@ -166,8 +162,6 @@ export const createNewsPipeline = () => {
       };
     },
   });
-
-  // Step 6: Enrich articles with sentiment data
   const enrichmentStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
       logger.info(`📊 Step 6: Enriching articles with sentiment data`);
@@ -197,7 +191,7 @@ export const createNewsPipeline = () => {
   // Step 7: Generate PDF
   const pdfGenerationStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`📄 Step 7: Generating PDF`);
+      logger.info(`📄 Step 7: Generating PDF in ${context.input.language}`);
       
       const enrichedArticles = context.enrichedArticles || context.digest.items.map(
         (item, index) => ({
@@ -215,30 +209,37 @@ export const createNewsPipeline = () => {
         })
       );
 
-      const pdfUrl = await generateDigestPDF(
-        enrichedArticles.map(a => ({
-          title: a.title,
-          summary: a.summary,
-          source: a.source,
-          topic: a.topic,
-          sentiment: a.sentiment,
-          pubDate: a.pubDate,
-          keywords: [],
-          reliability: 0.8,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        })) as any,
-        {},
-        context.input.userId
-      );
+      try {
+        const pdfUrl = await generateDigestPDF(
+          enrichedArticles.map(a => ({
+            title: a.title,
+            summary: a.summary,
+            source: a.source,
+            topic: a.topic,
+            sentiment: a.sentiment,
+            pubDate: a.pubDate,
+            keywords: [],
+            reliability: 0.8,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          })) as any,
+          {},
+          context.input.userId,
+          context.input.language
+        );
 
-      logger.info(`PDF generated and uploaded`);
-      logger.info(`🔗 PDF URL: ${pdfUrl}`);
+        logger.info(`PDF generated`);
+        logger.info(`🔗 PDF URL: ${pdfUrl}`);
 
-      return { ...context, pdfUrl, enrichedArticles };
+        return { ...context, pdfUrl, enrichedArticles };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : "Unknown PDF generation error";
+        logger.warn(`⚠️ PDF generation failed: ${errorMsg}`);
+
+        return { ...context, pdfUrl: null, enrichedArticles };
+      }
     },
   });
 
-  // Step 8: Send email with attachments
   const emailStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineOutput> => {
       logger.info(`Step 8: Sending email to ${context.input.email}`);
@@ -259,17 +260,25 @@ export const createNewsPipeline = () => {
         })
       );
 
+  
+      const attachmentsData: { pdfUrl?: string; audioUrl?: string; pdfFileName?: string; audioFileName?: string } = {};
+      
+      if (context.pdfUrl) {
+        attachmentsData.pdfUrl = context.pdfUrl;
+        attachmentsData.pdfFileName = "news-digest.pdf";
+      }
+      
+      if (context.audioUrl) {
+        attachmentsData.audioUrl = context.audioUrl;
+        attachmentsData.audioFileName = context.audioFileName;
+      }
+
       const emailSent = await sendEmailDigest(
         context.input.email,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         enrichedArticles as any,
         context.input.userId,
-        {
-          pdfUrl: context.pdfUrl,
-          audioUrl: context.audioUrl,
-          pdfFileName: "news-digest.pdf",
-          audioFileName: context.audioFileName,
-        }
+        Object.keys(attachmentsData).length > 0 ? attachmentsData : undefined
       );
 
       logger.info(`Email sent successfully`);
@@ -284,7 +293,7 @@ export const createNewsPipeline = () => {
     },
   });
 
-  // Compose the full pipeline using RunnableSequence
+
   const pipeline = RunnableSequence.from([
     collectorStep,
     audioScriptStep,
@@ -298,9 +307,7 @@ export const createNewsPipeline = () => {
   return pipeline;
 };
 
-/**
- * Execute the news pipeline with proper error handling
- */
+
 export const executePipeline = async (
   input: PipelineInput
 ): Promise<PipelineOutput> => {
