@@ -200,32 +200,85 @@ export async function collectDailyDigest(
     items: Array(15).fill({ title: "", link: "", summary: "", source: "", pubDate: "" })
   });
 
-  const promptContent = `You are a precise multilingual news curator.
+  const promptContent = `You are a precise multilingual news curator. IMPORTANT: Return ONLY valid JSON, no markdown or extra text.
 
-Today's date is ${new Date().toISOString().split("T")[0]}. The user requested topic: ${topic} and language: ${language}.
-From the list below, choose the 15 most important and recent headlines relevant to the user's topic. 
-For each chosen article, provide:
-- title: a concise informative headline in the requested language
-- link: the exact original link from the article data (if missing, set to null)
-- summary: a 200 words factual summary in the requested language
-- source: the source name if available
-- pubDate: use the pubDate from the feed if available
+Today's date is ${new Date().toISOString().split("T")[0]}. 
+User requested topic: ${topic}
+Language: ${language}
 
-Return STRICTLY valid JSON and nothing else. Format exactly as:
-${jsonExample}
+From the articles below, select the 15 most important and recent headlines.
+For each article, provide these fields EXACTLY:
+- title: brief headline (${language})
+- link: original URL or null
+- summary: 100-150 words (${language})  
+- source: news source name or null
+- pubDate: publication date or null
 
-Raw Articles:
+RETURN ONLY THIS JSON STRUCTURE, NO OTHER TEXT:
+{
+  "date": "${new Date().toISOString().split("T")[0]}",
+  "language": "${language}",
+  "topic": "${topic}",
+  "items": [array of 15 articles]
+}
+
+Raw Articles to Process:
 ${articlesText}`;
 
   const chain = model.pipe(new StringOutputParser());
   const output = await chain.invoke([{ role: "user", content: promptContent }]);
-  const cleanedOutput = output.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  
+  // Clean the output - remove markdown code blocks
+  let cleanedOutput = output
+    .replace(/```json\n?/g, "")
+    .replace(/```\n?/g, "")
+    .trim();
+  
+  // Extract JSON from text if wrapped
+  const jsonMatch = cleanedOutput.match(/\{\s*"[^"]*"[\s\S]*?\}\s*$/);
+  if (jsonMatch) {
+    cleanedOutput = jsonMatch[0];
+  }
 
   let parsedJson;
   try {
     parsedJson = JSON.parse(cleanedOutput);
-  } catch (e) {
-    throw new Error(`Failed to parse JSON from model output: ${e}`);
+  } catch (initialError) {
+    // Try to fix common issues
+    try {
+      // Remove newlines that aren't in strings
+      const lines = cleanedOutput.split('\n');
+      let inString = false;
+      let fixedOutput = '';
+      
+      for (const line of lines) {
+        for (const char of line) {
+          if (char === '"' && fixedOutput.charAt(fixedOutput.length - 1) !== '\\') {
+            inString = !inString;
+          }
+          fixedOutput += char;
+        }
+        // Add space instead of newline if we're in a string
+        if (!inString) {
+          fixedOutput += ' ';
+        }
+      }
+      
+      // Remove trailing commas
+      fixedOutput = fixedOutput.replace(/,(\s*[}\]])/g, '$1');
+      
+      parsedJson = JSON.parse(fixedOutput);
+    } catch (fixError) {
+      // Create a minimal valid response
+      console.error('JSON parse error - attempting fallback:', initialError);
+      parsedJson = {
+        date: new Date().toISOString().split("T")[0],
+        language,
+        topic,
+        items: []
+      };
+      console.warn(`⚠️ Could not parse model output. Returning empty digest. Model output length: ${output.length}`);
+    }
   }
 
   const baseDigest = DigestSchema.safeParse({

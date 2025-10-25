@@ -48,7 +48,7 @@ export default function SignUp() {
       if (authError) {
         setError((authError as Error).message || 'An error occurred');
       } else if (data.user) {
-        setSuccess('Account created! Check your email to confirm your account.');
+        setSuccess('Account created successfully! Redirecting to sign in...');
         setTimeout(() => {
           router.push('/auth/signin');
         }, 2000);

@@ -1,26 +1,100 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.6%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.6%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.6%;
+    --primary: 280 100% 44%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 200 100% 50%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 180 100% 50%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 96.1%;
+    --ring: 280 100% 44%;
+    --chart-1: 280 100% 44%;
+    --chart-2: 200 100% 50%;
+    --chart-3: 180 100% 50%;
+    --chart-4: 30 100% 50%;
+    --chart-5: 0 0% 50%;
+    --radius: 0.5rem;
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 0 0% 3.6%;
+    --sidebar-primary: 280 100% 44%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 200 100% 50%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 0 0% 89.8%;
+    --sidebar-ring: 280 100% 44%;
+    --sentiment-positive: 140 70% 50%;
+    --sentiment-negative: 20 100% 50%;
+    --sentiment-neutral: 0 0% 50%;
+  }
+
+  .dark {
+    --background: 0 0% 3.6%;
+    --foreground: 0 0% 98.2%;
+    --card: 0 0% 8.2%;
+    --card-foreground: 0 0% 98.2%;
+    --popover: 0 0% 8.2%;
+    --popover-foreground: 0 0% 98.2%;
+    --primary: 280 100% 68%;
+    --primary-foreground: 0 0% 3.6%;
+    --secondary: 200 100% 68%;
+    --secondary-foreground: 0 0% 3.6%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --accent: 180 100% 70%;
+    --accent-foreground: 0 0% 3.6%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98.2%;
+    --border: 0 0% 14.9%;
+    --input: 0 0% 9.8%;
+    --ring: 280 100% 68%;
+    --chart-1: 280 100% 68%;
+    --chart-2: 200 100% 68%;
+    --chart-3: 180 100% 70%;
+    --chart-4: 30 100% 68%;
+    --chart-5: 0 0% 60%;
+    --sidebar: 0 0% 5%;
+    --sidebar-foreground: 0 0% 98.2%;
+    --sidebar-primary: 280 100% 68%;
+    --sidebar-primary-foreground: 0 0% 98.2%;
+    --sidebar-accent: 200 100% 68%;
+    --sidebar-accent-foreground: 0 0% 98.2%;
+    --sidebar-border: 0 0% 14.9%;
+    --sidebar-ring: 280 100% 68%;
+    --sentiment-positive: 140 70% 60%;
+    --sentiment-negative: 20 100% 60%;
+    --sentiment-neutral: 0 0% 60%;
+  }
+
+  body {
+    @apply bg-background text-foreground;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  .glass {
+    @apply bg-white/10 dark:bg-white/5 backdrop-blur-md border border-white/20 dark:border-white/10;
+  }
+
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent;
+  }
+
+  .glow-effect {
+    @apply shadow-lg shadow-primary/20 dark:shadow-primary/30;
+  }
 }
