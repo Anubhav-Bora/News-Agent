@@ -24,15 +24,16 @@ export default function SignIn() {
       const { data, error: authError } = await signIn(email, password);
 
       if (authError) {
-        setError(authError.message);
+        setError((authError as Error).message || 'An error occurred');
       } else if (data.user) {
         setSuccess('Sign in successful! Redirecting...');
         setTimeout(() => {
           router.push('/');
         }, 1000);
       }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during sign in');
+    } catch (err) {
+      const error = err as Error;
+      setError(error.message || 'An error occurred during sign in');
     } finally {
       setLoading(false);
     }
@@ -46,10 +47,11 @@ export default function SignIn() {
       const { error: authError } = await signInWithGoogle();
 
       if (authError) {
-        setError(authError.message);
+        setError((authError as Error).message || 'An error occurred');
       }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during Google sign in');
+    } catch (err) {
+      const error = err as Error;
+      setError(error.message || 'An error occurred during Google sign in');
     } finally {
       setLoading(false);
     }
@@ -141,7 +143,7 @@ export default function SignIn() {
         </button>
 
         <p className="text-center text-gray-600 mt-6">
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <Link href="/auth/signup" className="text-indigo-600 hover:text-indigo-700 font-semibold">
             Sign Up
           </Link>

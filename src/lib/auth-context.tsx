@@ -1,17 +1,17 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
+import { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string) => Promise<{ error: any; data: any }>;
-  signIn: (email: string, password: string) => Promise<{ error: any; data: any }>;
-  signInWithGoogle: () => Promise<{ error: any; data: any }>;
-  signOut: () => Promise<{ error: any }>;
+  signUp: (email: string, password: string) => Promise<{ error: AuthError | unknown; data: any }>;
+  signIn: (email: string, password: string) => Promise<{ error: AuthError | unknown; data: any }>;
+  signInWithGoogle: () => Promise<{ error: AuthError | unknown; data: any }>;
+  signOut: () => Promise<{ error: AuthError | unknown }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -22,7 +22,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check active sessions and sets the user
     const getSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
@@ -32,7 +31,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     getSession();
 
-    // Listen for changes on auth state
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {

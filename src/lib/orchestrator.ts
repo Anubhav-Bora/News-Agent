@@ -225,6 +225,7 @@ export const createNewsPipeline = () => {
           pubDate: a.pubDate,
           keywords: [],
           reliability: 0.8,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
         })) as any,
         {},
         context.input.userId
@@ -260,6 +261,7 @@ export const createNewsPipeline = () => {
 
       const emailSent = await sendEmailDigest(
         context.input.email,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         enrichedArticles as any,
         context.input.userId,
         {

@@ -147,7 +147,7 @@ export async function generateDigestPDF(
 
   // PAGES 1-5: Article Display Pages
   let pageNumber = 1;
-  let articlesPerPage = 3;
+  const articlesPerPage = 3;
   let currentPageArticles = 0;
   let articlePage = pdfDoc.addPage([595, 842]);
   let articleYPos = addHeader(articlePage, "TOP STORIES");

@@ -46,15 +46,16 @@ export default function SignUp() {
       const { data, error: authError } = await signUp(email, password);
 
       if (authError) {
-        setError(authError.message);
+        setError((authError as Error).message || 'An error occurred');
       } else if (data.user) {
         setSuccess('Account created! Check your email to confirm your account.');
         setTimeout(() => {
           router.push('/auth/signin');
         }, 2000);
       }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during sign up');
+    } catch (err) {
+      const error = err as Error;
+      setError(error.message || 'An error occurred during sign up');
     } finally {
       setLoading(false);
     }
@@ -68,10 +69,11 @@ export default function SignUp() {
       const { error: authError } = await signInWithGoogle();
 
       if (authError) {
-        setError(authError.message);
+        setError((authError as Error).message || 'An error occurred');
       }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred during Google sign up');
+    } catch (err) {
+      const error = err as Error;
+      setError(error.message || 'An error occurred during Google sign up');
     } finally {
       setLoading(false);
     }
