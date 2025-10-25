@@ -196,12 +196,182 @@ async function fetchWeatherData(location: string = "New York"): Promise<Weather 
   }
 }
 
+async function collectFromCategory(articlesText: string, category: string, language: string): Promise<Array<{
+  title: string;
+  link: string | null;
+  summary: string;
+  source: string | null;
+  pubDate: string | null;
+  sentiment: "positive" | "negative" | "neutral";
+  sentimentScore: number;
+}>> {
+  if (!process.env.GOOGLE_API_KEY) {
+    throw new Error("Missing GOOGLE_API_KEY environment variable");
+  }
+
+  const model = new ChatGoogleGenerativeAI({
+    model: "gemini-2.0-flash",
+    temperature: 0.2,
+    apiKey: process.env.GOOGLE_API_KEY,
+  });
+
+  const promptContent = `You are a precise multilingual news curator. IMPORTANT: Return ONLY valid JSON, no markdown, no code blocks, no extra text.
+
+Today's date is ${new Date().toISOString().split("T")[0]}. 
+Category: ${category}
+Language: ${language}
+
+From the articles below, select 3-4 most important and recent headlines.
+For each article, STRICTLY provide these fields:
+- title: brief headline string in ${language}
+- link: original URL string or null
+- summary: 100-150 word summary string in ${language}, WITHOUT newlines, with special characters properly escaped
+- source: news source name string or null  
+- pubDate: publication date string or null
+
+CRITICAL JSON FORMATTING RULES:
+1. Use ONLY double quotes for all strings
+2. Escape ALL quotes inside strings with backslash: \"
+3. Escape ALL newlines as \\n (not actual line breaks)
+4. Escape ALL backslashes as \\\\
+5. NO newlines inside any string values - convert to spaces
+6. Remove special Unicode characters - use ASCII equivalents or transliterate
+7. All numbers without quotes, booleans without quotes
+8. NO trailing commas before ] or }
+9. Return ONLY the JSON array, nothing else
+
+Valid JSON example format:
+[{"title":"Example Title","link":null,"summary":"Example summary text without newlines or special chars.","source":"Example Source","pubDate":null}]
+
+Raw Articles to Process:
+${articlesText}`;
+
+  const chain = model.pipe(new StringOutputParser());
+  const output = await chain.invoke([{ role: "user", content: promptContent }]);
+  
+  let cleanedOutput = output
+    .replace(/```json\n?/g, "")
+    .replace(/```\n?/g, "")
+    .trim();
+  
+  const jsonMatch = cleanedOutput.match(/\[\s*\{[\s\S]*?\}\s*\]/);
+  if (jsonMatch) {
+    cleanedOutput = jsonMatch[0];
+  }
+
+  try {
+    const items = JSON.parse(cleanedOutput) as Array<{
+      title: string;
+      link: string | null;
+      summary: string;
+      source: string | null;
+      pubDate: string | null;
+    }>;
+    
+    return items.map(item => ({
+      ...item,
+      sentiment: "neutral" as const,
+      sentimentScore: 0.5
+    }));
+  } catch {
+    console.warn(`⚠️ Failed to parse category ${category} articles`);
+    return [];
+  }
+}
+
 export async function collectDailyDigest(
   topic = "all",
   language = "en",
   location?: string,
   state?: string
 ): Promise<DailyDigest> {
+  // Special handling for "all" topic - collect from each category equally
+  if (topic === "all") {
+    console.log(`📰 Collecting digest for topic: all (equal distribution from all categories)`);
+    
+    const categories = ["tech", "sports", "national", "international"];
+    const allItems: NewsItem[] = [];
+    
+    // Fetch articles from each category
+    for (const category of categories) {
+      const feeds = FEEDS[category] ?? [];
+      const rawGroups = await Promise.all(feeds.map((f) => fetchRssItems(f).catch(() => [])));
+      const categoryArticles = uniqueByLink(rawGroups.flat())
+        .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
+        .slice(0, 4); // 4 articles per category = 16 total
+      
+      // Process each category's articles through AI with category label
+      const categoryText = categoryArticles
+        .map((a, idx) => 
+          `${idx + 1}. Title: ${a.title}\nLink: ${a.link ?? ""}\nSource: ${a.source ?? ""}\nPubDate: ${a.pubDate ?? ""}\nDescription: ${a.description}`
+        )
+        .join("\n\n");
+
+      if (categoryText.trim().length > 0) {
+        const categoryDigest = await collectFromCategory(categoryText, category, language);
+        allItems.push(...categoryDigest);
+      }
+    }
+    
+    // Ensure we have at least 10 articles total
+    if (allItems.length < 10) {
+      console.warn(`⚠️ Only collected ${allItems.length} articles. Fetching additional from "all" feeds...`);
+      const feeds = FEEDS["all"];
+      const rawGroups = await Promise.all(feeds.map((f) => fetchRssItems(f).catch(() => [])));
+      const additionalArticles = uniqueByLink(rawGroups.flat())
+        .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
+        .slice(0, 10 - allItems.length);
+      
+      allItems.push(...additionalArticles.map(a => ({
+        title: a.title,
+        link: a.link || null,
+        summary: a.description?.substring(0, 150) || a.title,
+        source: a.source || null,
+        pubDate: a.pubDate || null,
+        sentiment: "neutral" as const,
+        sentimentScore: 0.5
+      })));
+    }
+
+    // Analyze sentiments
+    console.log(`🔍 Analyzing sentiments for ${allItems.length} articles...`);
+    const sentimentResults = await analyzeSentimentsBatch(
+      allItems.map((i) => ({
+        title: i.title,
+        summary: i.summary
+      }))
+    );
+
+    const itemsWithSentiment = allItems.map((item: NewsItem, idx: number) => {
+      const sentimentData = sentimentResults[idx] || { sentiment: "neutral", score: 0.5 };
+      return {
+        ...item,
+        sentiment: sentimentData.sentiment as "positive" | "negative" | "neutral",
+        sentimentScore: sentimentData.score
+      };
+    });
+
+    let weather: Weather | undefined;
+    if (location) {
+      const weatherData = await fetchWeatherData(location);
+      if (weatherData) {
+        weather = weatherData;
+        console.log(`✅ Weather data collected for ${location}`);
+      }
+    }
+
+    console.log(`✅ Digest collected with ${itemsWithSentiment.length} articles (${categories.length} categories equally distributed)`);
+
+    return {
+      date: new Date().toISOString().split("T")[0],
+      language,
+      topic,
+      weather,
+      items: itemsWithSentiment
+    };
+  }
+
+  // Original logic for specific topics
   const feeds = FEEDS[topic] ?? FEEDS["all"];
   
   console.log(`📰 Collecting digest for topic: ${topic}${state ? ` (State: ${state})` : ""}`);
@@ -256,13 +426,18 @@ Today's date is ${new Date().toISOString().split("T")[0]}.
 User requested topic: ${topic}
 Language: ${language}
 
-From the articles below, select up to 15 most important and recent headlines.
+From the articles below, select EXACTLY 10-15 most important and recent headlines (minimum 10 articles required).
 For each article, STRICTLY provide these fields:
 - title: brief headline string in ${language}
 - link: original URL string or null
 - summary: 100-150 word summary string in ${language}, WITHOUT newlines, with special characters properly escaped
 - source: news source name string or null  
 - pubDate: publication date string or null
+
+CRITICAL REQUIREMENTS:
+1. MUST return at least 10 articles, maximum 15 articles
+2. Do NOT return fewer than 10 articles under any circumstances
+3. If fewer than 10 articles are available, use the best articles and expand summaries if needed
 
 CRITICAL JSON FORMATTING RULES:
 1. Use ONLY double quotes for all strings
@@ -398,20 +573,24 @@ ${articlesText}`;
 
   if (!baseDigest.success) {
     console.warn(`Schema validation failed: ${JSON.stringify(baseDigest.error.errors)}`);
-    // Return digest with raw articles if validation fails
+    // Return digest with raw articles if validation fails, ensuring at least 10 articles
+    const fallbackArticles = rawArticles.slice(0, Math.max(15, 10)).map(a => ({
+      title: a.title,
+      link: a.link || null,
+      summary: a.description?.substring(0, 150) || a.title,
+      source: a.source || null,
+      pubDate: a.pubDate || null,
+      sentiment: "neutral" as const,
+      sentimentScore: 0.5
+    }));
+    
+    console.log(`✅ Using fallback articles. Total: ${fallbackArticles.length}`);
+    
     return {
       date: new Date().toISOString().split("T")[0],
       language,
       topic,
-      items: rawArticles.slice(0, 15).map(a => ({
-        title: a.title,
-        link: a.link || null,
-        summary: a.description?.substring(0, 150) || a.title,
-        source: a.source || null,
-        pubDate: a.pubDate || null,
-        sentiment: "neutral" as const,
-        sentimentScore: 0.5
-      }))
+      items: fallbackArticles
     };
   }
 
@@ -451,6 +630,26 @@ ${articlesText}`;
       weather = weatherData;
       console.log(`✅ Weather data collected for ${location}`);
     }
+  }
+
+  // Ensure minimum 10 articles
+  if (itemsWithContext.length < 10) {
+    console.warn(`⚠️ Only ${itemsWithContext.length} articles collected. Attempting to add more from raw articles...`);
+    const additionalArticles = rawArticles
+      .filter(ra => !itemsWithContext.some(i => i.title.includes(ra.title.slice(0, 20))))
+      .slice(0, 10 - itemsWithContext.length)
+      .map(a => ({
+        title: a.title,
+        link: a.link || null,
+        summary: a.description?.substring(0, 150) || a.title,
+        source: a.source || null,
+        pubDate: a.pubDate || null,
+        sentiment: "neutral" as const,
+        sentimentScore: 0.5
+      }));
+    
+    itemsWithContext.push(...additionalArticles);
+    console.log(`✅ Added ${additionalArticles.length} additional articles. Total: ${itemsWithContext.length}`);
   }
 
   console.log(`✅ Digest collected with ${itemsWithContext.length} articles`);

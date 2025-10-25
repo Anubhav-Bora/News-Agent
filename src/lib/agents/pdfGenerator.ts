@@ -210,7 +210,8 @@ export async function generateDigestPDF(
   articles: Article[],
   historicalDigests: Record<string, { topicCounts: Record<string, number>; sentimentCounts: Record<string, number> }>,
   userId: string,
-  language = "en"
+  language = "en",
+  weather?: { location: string; temperature: number; condition: string; humidity?: number; windSpeed?: number }
 ): Promise<string | null> {
   // Translate articles to target language
   console.log(`📝 Translating articles to ${languageMap[language.toLowerCase()] || language}...`);
@@ -283,6 +284,14 @@ export async function generateDigestPDF(
     let yPos = 790;
     page.drawText("THE DAILY DIGEST", { x: margin, y: yPos, size: 10, font: timesBold, color: rgb(0, 0, 0) });
     page.drawText(`${title} (${displayLanguage})`, { x: 595 - margin - 200, y: yPos, size: 10, font: timesBold, color: rgb(0, 0, 0) });
+    
+    // Add weather info if available
+    if (weather) {
+      yPos -= 12;
+      const weatherText = `🌡️ ${weather.location}: ${weather.temperature}°C, ${weather.condition}${weather.humidity ? ` (${weather.humidity}% humidity)` : ""}`;
+      page.drawText(weatherText, { x: margin, y: yPos, size: 8, font: helvetica, color: rgb(0.3, 0.3, 0.3) });
+    }
+    
     yPos -= 8;
     page.drawLine({ start: { x: margin, y: yPos }, end: { x: 595 - margin, y: yPos }, thickness: 1.5, color: rgb(0, 0, 0) });
     return yPos - 20;

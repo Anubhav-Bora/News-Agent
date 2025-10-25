@@ -18,6 +18,7 @@ export default function AppPage() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [selectedState, setSelectedState] = useState("")
   const [selectedLanguage, setSelectedLanguage] = useState("hindi")
+  const [weatherLocation, setWeatherLocation] = useState("")
   const [includeAudio, setIncludeAudio] = useState(true)
   const [includePDF, setIncludePDF] = useState(true)
   const [includeSentiment, setIncludeSentiment] = useState(true)
@@ -118,7 +119,7 @@ export default function AppPage() {
           language: selectedLanguage,
           newsType: selectedCategory === "state" ? "state" : selectedCategory,
           state: selectedState || undefined,
-          location: selectedState || undefined,
+          location: weatherLocation || undefined,
         }),
       })
 
@@ -130,6 +131,7 @@ export default function AppPage() {
         setEmail("")
         setSelectedCategory("all")
         setSelectedState("")
+        setWeatherLocation("")
       } else {
         alert(`Error: ${data.message || "Failed to generate digest"}`)
       }
@@ -261,6 +263,22 @@ export default function AppPage() {
                   </div>
                 )}
 
+                {/* Weather Location (Optional) */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    <span>📍 Weather Location</span>
+                    <span className="text-xs text-muted-foreground ml-2">(Optional)</span>
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="e.g., New Delhi, Mumbai, New York"
+                    value={weatherLocation}
+                    onChange={(e) => setWeatherLocation(e.target.value)}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Enter a city name to include weather information in your digest</p>
+                </div>
+
                 {/* Advanced Options */}
                 <div className="border-t border-border pt-6">
                   <details className="group">
@@ -315,8 +333,12 @@ export default function AppPage() {
 
               {/* Success Message */}
               {showSuccess && (
-                <div className="mt-6 p-4 bg-accent/10 border border-accent rounded-lg text-accent">
-                  ✓ Digest created successfully! Check your email.
+                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800 flex items-start gap-3">
+                  <span className="text-xl">✓</span>
+                  <div>
+                    <p className="font-semibold">Email digest sent successfully!</p>
+                    <p className="text-sm opacity-90">Check <span className="font-medium">{email}</span> for your personalized news digest with PDF, audio, and analysis.</p>
+                  </div>
                 </div>
               )}
             </Card>

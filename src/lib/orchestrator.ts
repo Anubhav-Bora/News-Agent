@@ -50,7 +50,15 @@ export interface PipelineOutput {
 
 interface PipelineContext {
   input: PipelineInput;
-  digest: NewsDigest;
+  digest: NewsDigest & {
+    weather?: {
+      location: string;
+      temperature: number;
+      condition: string;
+      humidity?: number;
+      windSpeed?: number;
+    };
+  };
   audioScript: string;
   suggestedTopics: string[];
   sentimentResults: SentimentResult[];
@@ -224,7 +232,8 @@ export const createNewsPipeline = () => {
           })) as any,
           {},
           context.input.userId,
-          context.input.language
+          context.input.language,
+          context.digest.weather
         );
 
         logger.info(`PDF generated`);
