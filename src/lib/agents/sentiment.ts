@@ -19,7 +19,6 @@ export interface ArticleWithSentiment {
   topic: string;
 }
 
-// Single sentiment analysis (used as fallback)
 export async function analyzeSentiment(text: string): Promise<SentimentResult> {
   if (!process.env.GOOGLE_API_KEY) {
     throw new Error("Missing GOOGLE_API_KEY environment variable");
@@ -75,7 +74,6 @@ Return ONLY the JSON object, nothing else.`
   };
 }
 
-// Batch sentiment analysis optimized for multiple articles
 export async function analyzeSentimentsBatch(
   articles: Array<{ title: string; summary: string }>
 ): Promise<SentimentResult[]> {
@@ -92,7 +90,6 @@ export async function analyzeSentimentsBatch(
     temperature: 0.1,
     apiKey: process.env.GOOGLE_API_KEY,
   });
-
   // Create batch prompt with all articles
   const articlesList = articles
     .map((a, i) => `[Article ${i + 1}]\nTitle: ${a.title}\nSummary: ${a.summary}`)
@@ -156,7 +153,6 @@ Return ONLY the JSON array, nothing else. Must have exactly ${articles.length} o
   }).slice(0, articles.length);
 }
 
-// Process articles and enrich with sentiment
 export async function enrichArticlesWithSentiment(
   articles: Array<{
     title: string;
@@ -190,7 +186,6 @@ export async function enrichArticlesWithSentiment(
   return enriched;
 }
 
-// Get sentiment statistics
 export async function getSentimentStatistics(
   articles: ArticleWithSentiment[]
 ): Promise<{
@@ -223,7 +218,6 @@ export async function getSentimentStatistics(
   };
 }
 
-// Categorize articles by sentiment
 export async function categorizeByTopic(
   articles: ArticleWithSentiment[]
 ): Promise<Record<string, ArticleWithSentiment[]>> {

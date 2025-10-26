@@ -81,7 +81,6 @@ const FEEDS: Record<string, string[]> = {
   ]
 };
 
-// State-specific keywords mapping for filtering articles
 const STATE_KEYWORDS: Record<string, string[]> = {
   "ap": ["Andhra Pradesh", "AP", "Hyderabad", "Vijayawada"],
   "ar": ["Arunachal Pradesh", "Itanagar"],
@@ -438,20 +437,22 @@ CRITICAL REQUIREMENTS:
 1. MUST return at least 10 articles, maximum 15 articles
 2. Do NOT return fewer than 10 articles under any circumstances
 3. If fewer than 10 articles are available, use the best articles and expand summaries if needed
+4. Return VALID JSON that can be parsed directly
 
 CRITICAL JSON FORMATTING RULES:
-1. Use ONLY double quotes for all strings
-2. Escape ALL quotes inside strings with backslash: \"
-3. Escape ALL newlines as \\n (not actual line breaks)
-4. Escape ALL backslashes as \\\\
-5. NO newlines inside any string values - convert to spaces
-6. Remove special Unicode characters - use ASCII equivalents or transliterate
-7. All numbers without quotes, booleans without quotes
-8. NO trailing commas before ] or }
-9. Return ONLY the JSON object, nothing else - no markdown, no code blocks
+1. Return ONLY a single JSON object wrapped in curly braces, nothing else
+2. Use ONLY double quotes for all strings
+3. Escape ALL quotes inside strings with backslash: \"
+4. Escape ALL newlines as \\n (replace with space or newline escape)
+5. Escape ALL backslashes as \\\\
+6. NO actual newlines inside any string values - always use \\n or space
+7. Remove or transliterate special Unicode characters - use ASCII equivalents
+8. All numbers without quotes, booleans as true/false without quotes
+9. NO trailing commas before ] or }
+10. Test your JSON is valid before returning
 
-Valid JSON example format:
-{"date":"YYYY-MM-DD","language":"${language}","topic":"${topic}","items":[{"title":"Example Title","link":null,"summary":"Example summary text without newlines or special chars.","source":"Example Source","pubDate":null}]}
+STRICT FORMAT - Return ONLY this structure with NO other text:
+{"date":"YYYY-MM-DD","language":"${language}","topic":"${topic}","items":[{"title":"Article Title","link":"http://url.com","summary":"Article summary text without newlines or special chars.","source":"Source Name","pubDate":"YYYY-MM-DD"}]}
 
 Raw Articles to Process:
 ${articlesText}`;
@@ -476,68 +477,112 @@ ${articlesText}`;
     try {
       let fixedOutput = cleanedOutput;
       
-      // Fix unescaped characters in JSON strings
-      fixedOutput = fixedOutput.replace(/: "([^"\\]*(\\.[^"\\]*)*)/g, (match) => {
-        const content = match.slice(3);
-        // Only escape unescaped quotes
-        const escaped = content
-          .replace(/\\([^"\\/bfnrtu])/g, '\\\\$1') // Fix improperly escaped characters
-          .replace(/(?<!\\)"/g, '\\"') // Escape unescaped quotes
-          .replace(/\n(?=(?:[^"]*"[^"]*")*[^"]*$)/g, '\\n') // Escape newlines outside quotes
-          .replace(/\r/g, '\\r')
-          .replace(/\t/g, '\\t');
-        return `: "${escaped}"`;
+      // Remove actual newlines and carriage returns from the entire JSON
+      fixedOutput = fixedOutput.replace(/\r\n/g, '\\n').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+      
+      // Fix improperly escaped sequences
+      // Remove backslashes before characters that shouldn't be escaped
+      fixedOutput = fixedOutput.replace(/\\([^"\\/bfnrtu])/g, (match, char) => {
+        // Keep valid escape sequences, remove invalid ones
+        if (char === 'x' || char === 'u') return match; // Could be valid hex/unicode
+        return char; // Remove the backslash for invalid escapes
       });
       
-      // Remove newlines outside of JSON strings
-      const lines = fixedOutput.split('\n');
-      let inString = false;
-      let processedOutput = '';
+      // Fix invalid \u sequences (must have exactly 4 hex digits)
+      fixedOutput = fixedOutput.replace(/\\u([0-9a-fA-F]{0,3})(?![0-9a-fA-F])/g, (match, hex) => {
+        // Replace with space or remove the invalid unicode escape
+        return ' ';
+      });
       
-      for (let i = 0; i < lines.length; i++) {
-        for (let j = 0; j < lines[i].length; j++) {
-          const char = lines[i][j];
-          const prevChar = processedOutput.charAt(processedOutput.length - 1);
-          
-          if (char === '"' && prevChar !== '\\') {
-            inString = !inString;
-          }
-          processedOutput += char;
-        }
-        
-        // Add space instead of newline if inside a string
-        if (!inString && i < lines.length - 1) {
-          processedOutput += ' ';
-        }
-      }
+      // Replace single quotes with double quotes only for field values
+      fixedOutput = fixedOutput.replace(/:\s*'([^']*)'/g, ': "$1"');
       
       // Remove trailing commas before closing brackets
-      fixedOutput = processedOutput.replace(/,(\s*[}\]])/g, '$1');
+      fixedOutput = fixedOutput.replace(/,(\s*[}\]])/g, '$1');
       
-      // Replace single quotes with double quotes only outside of existing strings
-      fixedOutput = fixedOutput.replace(/: '([^']*)'/g, ': "$1"');
+      // Escape any unescaped quotes within string values
+      fixedOutput = fixedOutput.replace(/"([^"\\]*)":/g, (match) => {
+        // This is a key, leave it alone
+        return match;
+      });
+      
+      // Final cleanup: ensure all quotes in values are escaped
+      const sanitizeStringValues = (json: string): string => {
+        let result = '';
+        let inString = false;
+        let escapeNext = false;
+        
+        for (let i = 0; i < json.length; i++) {
+          const char = json[i];
+          
+          if (escapeNext) {
+            result += char;
+            escapeNext = false;
+            continue;
+          }
+          
+          if (char === '\\') {
+            result += char;
+            escapeNext = true;
+            continue;
+          }
+          
+          if (char === '"') {
+            inString = !inString;
+            result += char;
+            continue;
+          }
+          
+          if (inString && char === '"') {
+            result += '\\"';
+            continue;
+          }
+          
+          result += char;
+        }
+        
+        return result;
+      };
+      
+      fixedOutput = sanitizeStringValues(fixedOutput);
       
       parsedJson = JSON.parse(fixedOutput);
     } catch (fixError) {
       console.error('JSON parse error - attempting fallback:', initialError);
       
       try {
-        const articles = [];
+        // Use the raw articles as fallback when JSON parsing completely fails
+        const fallbackItems = rawArticles.slice(0, 15).map(a => ({
+          title: a.title || 'Untitled',
+          link: a.link || null,
+          summary: (a.description || a.title || '').substring(0, 200).replace(/\n/g, ' ').replace(/"/g, '\\"'),
+          source: a.source || null,
+          pubDate: a.pubDate || null,
+          sentiment: "neutral" as const,
+          sentimentScore: 0.5
+        }));
         
-        // Extract title-summary pairs more intelligently
-        const titleMatches = cleanedOutput.match(/"title"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/g) || [];
-        
-        if (titleMatches.length > 0) {
+        // If still not enough articles, try extracting from the JSON attempt
+        if (fallbackItems.length < 10) {
+          const titleMatches = cleanedOutput.match(/"title"\s*:\s*"([^"]*?)"/g) || [];
+          
           for (const match of titleMatches) {
-            const titleContent = match.match(/"title"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/);
+            if (fallbackItems.length >= 10) break;
+            const titleContent = match.match(/"title"\s*:\s*"([^"]*?)"/);
             if (titleContent) {
-              articles.push({
-                title: titleContent[1].replace(/\\"/g, '"').replace(/\\n/g, ' '),
-                link: null,
-                summary: titleContent[1].replace(/\\"/g, '"').replace(/\\n/g, ' ').slice(0, 150),
-                source: null,
-                pubDate: null
-              });
+              const title = titleContent[1].replace(/\\"/g, '"').replace(/\\n/g, ' ');
+              // Check if this title isn't already in fallbackItems
+              if (!fallbackItems.some(item => item.title === title)) {
+                fallbackItems.push({
+                  title: title || 'Untitled',
+                  link: null,
+                  summary: title.substring(0, 150),
+                  source: null,
+                  pubDate: null,
+                  sentiment: "neutral" as const,
+                  sentimentScore: 0.5
+                });
+              }
             }
           }
         }
@@ -546,10 +591,10 @@ ${articlesText}`;
           date: new Date().toISOString().split("T")[0],
           language,
           topic,
-          items: articles.slice(0, 15)
+          items: fallbackItems
         };
         
-        console.warn(`⚠️ Could not parse model output. Extracted ${articles.length} articles from text. Model output length: ${output.length}`);
+        console.warn(`⚠️ Could not parse model output. Using fallback articles (${fallbackItems.length} items). Model output length: ${output.length}`);
       } catch (extractError) {
         parsedJson = {
           date: new Date().toISOString().split("T")[0],

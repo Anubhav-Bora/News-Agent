@@ -8,13 +8,11 @@ import {
   getBrowsingHistoryFromDB,
 } from "../storage";
 
-// Fall back to in-memory storage if DB is unavailable
 const userInterestsDB: Map<string, Record<string, number>> = new Map();
 const browsingHistoryDB: Map<string, string[]> = new Map();
 
 export async function getUserInterests(userId: string): Promise<Record<string, number>> {
   try {
-    // Try to fetch from persistent database
     const dbInterests = await getUserInterestsFromDB(userId);
     if (Object.keys(dbInterests).length > 0) {
       console.log(`📊 Loaded interests from database for user ${userId}`);
@@ -24,7 +22,6 @@ export async function getUserInterests(userId: string): Promise<Record<string, n
     console.warn(`Failed to fetch from DB, using in-memory storage`);
   }
 
-  // Fall back to in-memory storage
   return userInterestsDB.get(userId) || {
     national: 0.3,
     international: 0.3,
@@ -35,10 +32,8 @@ export async function getUserInterests(userId: string): Promise<Record<string, n
 }
 
 export async function updateUserInterests(userId: string, interests: Record<string, number>): Promise<void> {
-  // Always save to in-memory for immediate access
   userInterestsDB.set(userId, interests);
 
-  // Also save to persistent database
   try {
     await saveUserInterestsToDb(userId, interests);
   } catch (err) {
@@ -47,11 +42,9 @@ export async function updateUserInterests(userId: string, interests: Record<stri
 }
 
 export async function addToBrowsingHistory(userId: string, articleTitles: string[]): Promise<void> {
-  // Update in-memory storage
   const current = browsingHistoryDB.get(userId) || [];
   browsingHistoryDB.set(userId, [...current, ...articleTitles].slice(-100));
 
-  // Also save to persistent database
   try {
     await addToBrowsingHistoryDB(userId, articleTitles);
   } catch (err) {
@@ -61,11 +54,9 @@ export async function addToBrowsingHistory(userId: string, articleTitles: string
 
 export async function getBrowsingHistory(userId: string): Promise<string[]> {
   try {
-    // Try to fetch from persistent database
     const dbHistory = await getBrowsingHistoryFromDB(userId);
     if (dbHistory.length > 0) {
       console.log(`📚 Loaded browsing history from database for user ${userId}`);
-      // Update in-memory cache
       browsingHistoryDB.set(userId, dbHistory);
       return dbHistory;
     }
@@ -73,24 +64,19 @@ export async function getBrowsingHistory(userId: string): Promise<string[]> {
     console.warn(`⚠️ Failed to fetch history from DB, using in-memory storage`);
   }
 
-  // Fall back to in-memory storage
   return browsingHistoryDB.get(userId) || [];
 }
 
-// Interest tracking with enhanced topic matching
+
 export async function updateInterestProfile(userId: string, topics: string[]): Promise<Record<string, number>> {
   const interests = await getUserInterests(userId);
   const newInterests = { ...interests };
 
-  // Normalize topic names
   const normalizedTopics = topics.map(t => t.toLowerCase().trim());
-
-  // Update interests for selected topics
   for (const topic of normalizedTopics) {
     newInterests[topic] = Math.min(1, (newInterests[topic] || 0.5) + 0.15);
   }
 
-  // Decay unselected topics
   for (const key of Object.keys(newInterests)) {
     if (!normalizedTopics.includes(key)) {
       newInterests[key] = Math.max(0.1, newInterests[key] - 0.03);
@@ -103,16 +89,14 @@ export async function updateInterestProfile(userId: string, topics: string[]): P
   return newInterests;
 }
 
-// Get ranked topics based on user interests
 export async function getRankedTopics(userId: string): Promise<string[]> {
   const interests = await getUserInterests(userId);
   return Object.entries(interests)
     .sort(([, a], [, b]) => (b as number) - (a as number))
     .map(([topic]) => topic)
-    .filter(t => t !== "all"); // Exclude "all" from recommendations
+    .filter(t => t !== "all");
 }
 
-// Track browsing history and suggest topics using LangChain
 export async function suggestRelevantTopics(
   userId: string,
   articleTitles: string[]
@@ -121,7 +105,6 @@ export async function suggestRelevantTopics(
     throw new Error("Missing GOOGLE_API_KEY environment variable");
   }
 
-  // Add to browsing history
   await addToBrowsingHistory(userId, articleTitles);
 
   const model = new ChatGoogleGenerativeAI({
@@ -169,13 +152,11 @@ Return ONLY the JSON array, nothing else.`
   return filteredTopics;
 }
 
-// Get next recommended topic based on user history
 export async function getNextRecommendedTopic(userId: string): Promise<string> {
   const rankedTopics = await getRankedTopics(userId);
   return rankedTopics[0] || "all";
 }
 
-// Analyze user interest trends
 export async function analyzeInterestTrends(userId: string): Promise<{
   topInterests: string[];
   growingInterests: string[];

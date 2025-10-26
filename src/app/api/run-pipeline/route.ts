@@ -21,7 +21,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<PipelineR
   try {
     const body = (await request.json()) as PipelineInput;
 
-    const { userId, email, language, newsType, state, location } = body;
+    const { userId, userName, email, language, newsType, state, location } = body;
 
     if (!userId || !email || !language || !newsType) {
       return NextResponse.json(
@@ -44,6 +44,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<PipelineR
 
     const result: PipelineOutput = await executePipeline({
       userId,
+      userName,
       email,
       language,
       newsType,

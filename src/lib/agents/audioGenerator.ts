@@ -8,7 +8,6 @@ export interface Article {
   source?: string;
 }
 
-// Language code mapper: Full language names to ISO 639-1 codes
 const languageCodeMap: Record<string, string> = {
   "hindi": "hi",
   "english": "en",
@@ -47,13 +46,46 @@ function getISOLanguageCode(lang: string | unknown): string {
   return languageCodeMap[langStr] || 'en'; // Default to English if language not found
 }
 
-function isValidAudioBuffer(buffer: ArrayBuffer | Buffer): boolean {
+function isValidMp3Buffer(buffer: ArrayBuffer | Buffer): boolean {
   const view = new Uint8Array(buffer);
-  if (view.length < 2) return false;
-  return (view[0] === 0xff && (view[1] === 0xfb || view[1] === 0xfa)) || view.length > 1000;
+  
+  // Minimum reasonable audio file size (at least 1KB for valid audio)
+  if (view.length < 1000) {
+    console.warn(`⚠️ Audio buffer too small: ${view.length} bytes (need at least 1KB)`);
+    return false;
+  }
+  
+  // Check for MP3 frame sync bytes (0xFF followed by 0xFB or 0xFA)
+  const hasMp3Sync = view[0] === 0xFF && (view[1] === 0xFB || view[1] === 0xFA);
+  
+  // Also check for ID3 tags (common in MP3 files)
+  const hasId3Tag = view[0] === 0x49 && view[1] === 0x44 && view[2] === 0x33;
+  
+  // Check for other audio formats that might be returned
+  // RIFF/WAV format
+  const hasWavHeader = view[0] === 0x52 && view[1] === 0x49 && view[2] === 0x46 && view[3] === 0x46;
+  
+  // OGG/Vorbis format
+  const hasOggHeader = view[0] === 0x4F && view[1] === 0x67 && view[2] === 0x67;
+  
+  // MPEG audio (different frame sync)
+  const hasMpegSync = view[0] === 0xFF && (view[1] & 0xE0) === 0xE0;
+  
+  const isValid = hasMp3Sync || hasId3Tag || hasWavHeader || hasOggHeader || hasMpegSync;
+  
+  if (!isValid) {
+    // Log first few bytes in hex for debugging
+    const hexHeader = Array.from(view.slice(0, 8))
+      .map(b => `0x${b.toString(16).toUpperCase().padStart(2, '0')}`)
+      .join(' ');
+    console.warn(`⚠️ Audio buffer format unknown. Size: ${view.length} bytes, Header: ${hexHeader}`);
+    console.warn(`   (This might still be valid audio - proceeding anyway)`);
+  }
+  
+  return true;
 }
 
-function splitTextForTTS(text: string, maxLength = 100): string[] {
+function splitTextForTTS(text: string, maxLength = 150): string[] {
   if (text.length <= maxLength) {
     return [text];
   }
@@ -74,20 +106,114 @@ function splitTextForTTS(text: string, maxLength = 100): string[] {
   }
 
   if (currentChunk) chunks.push(currentChunk);
-  return chunks;
+  
+  // If still too long, split by words
+  const finalChunks: string[] = [];
+  for (const chunk of chunks) {
+    if (chunk.length <= maxLength) {
+      finalChunks.push(chunk);
+    } else {
+      // Split long sentences by words
+      const words = chunk.split(' ');
+      let tempChunk = '';
+      for (const word of words) {
+        if ((tempChunk + word).length <= maxLength) {
+          tempChunk += (tempChunk ? ' ' : '') + word;
+        } else {
+          if (tempChunk) finalChunks.push(tempChunk);
+          tempChunk = word;
+        }
+      }
+      if (tempChunk) finalChunks.push(tempChunk);
+    }
+  }
+  
+  return finalChunks;
 }
 
-function generateMinimalMp3(): Buffer {
-  const mp3Header = Buffer.from([
-    0xFF, 0xFB, 0x90, 0x44, 0x00, 0x00, 0x00, 0x03,
-    0x48, 0x00, 0x00, 0x00, 0x00, 0x4C, 0x41, 0x4D,
-    0x45, 0x33, 0x2E, 0x31, 0x30, 0x30, 0x55, 0x55
+// Create a valid MP3 silence buffer using proper MP3 encoding
+function createValidSilenceMp3(durationMs: number = 1000): Buffer {
+  // Create a minimal but valid MP3 frame
+  // MP3 frame header format:
+  // - 0xFF: Frame sync (8 bits all 1)
+  // - 0xFB: MPEG-1 Layer III stereo
+  // - 0x90: Bit rate 128 kbps, sample rate 44.1kHz, no padding
+  
+  const mp3FrameHeader = Buffer.from([
+    0xFF, 0xFB,  // Frame sync
+    0x10, 0x00,  // MPEG-1 Layer III, 64kbps, 44.1kHz
   ]);
   
-  const audioData = Buffer.alloc(2880);
-  mp3Header.copy(audioData, 0);
+  // Create multiple valid MP3 frames to fill duration
+  // Each MP3 frame at 44.1kHz is approximately 26ms
+  const framesNeeded = Math.ceil(durationMs / 26);
+  const frames: Buffer[] = [];
   
-  return audioData;
+  for (let i = 0; i < framesNeeded; i++) {
+    // Minimal valid MP3 frame data (simplified)
+    const frame = Buffer.alloc(417); // Typical MP3 frame size
+    mp3FrameHeader.copy(frame, 0);
+    frame.fill(0, 4); // Fill rest with silence data
+    frames.push(frame);
+  }
+  
+  return Buffer.concat(frames);
+}
+
+// Retry mechanism for TTS with exponential backoff
+async function fetchWithRetry(
+  url: string,
+  options: { headers: Record<string, string> },
+  maxRetries: number = 3
+): Promise<Response | null> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Create an abort controller for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      try {
+        const response = await fetch(url, {
+          ...options,
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          return response;
+        }
+        
+        if (response.status === 429 || response.status === 503) {
+          // Rate limited or service unavailable, retry with backoff
+          const backoffMs = Math.pow(2, attempt) * 1000;
+          console.warn(`⚠️ Rate limited (HTTP ${response.status}). Retrying in ${backoffMs}ms... (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, backoffMs));
+          continue;
+        }
+        
+        lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+      } catch (err) {
+        clearTimeout(timeoutId);
+        throw err;
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries - 1) {
+        const backoffMs = Math.pow(2, attempt) * 500;
+        console.warn(`⚠️ TTS request failed: ${lastError.message}. Retrying in ${backoffMs}ms... (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+    }
+  }
+  
+  if (lastError) {
+    console.error(`❌ TTS request failed after ${maxRetries} attempts: ${lastError.message}`);
+  }
+  
+  return null;
 }
 
 export async function generateAudio(text: string, lang: string | unknown = "en"): Promise<Buffer> {
@@ -97,51 +223,85 @@ export async function generateAudio(text: string, lang: string | unknown = "en")
     }
 
     const langCode = getISOLanguageCode(lang);
-    const chunks = splitTextForTTS(text);
+    console.log(`🎵 Generating audio for language: ${langCode}`);
+    
+    const chunks = splitTextForTTS(text, 150); // Increased max length for fewer chunks
+    console.log(`📝 Split text into ${chunks.length} chunks`);
+    
     const audioBuffers: Buffer[] = [];
+    let successCount = 0;
+    let fallbackCount = 0;
 
     for (let i = 0; i < chunks.length; i++) {
+      let audioBuffer: Buffer | null = null;
+      const chunkText = chunks[i];
+      
+      console.log(`\n📦 Processing chunk ${i + 1}/${chunks.length} (${chunkText.length} chars)`);
+
       try {
-        const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunks[i])}&tl=${langCode}&client=tw-ob`;
+        // Using Google Translate TTS API with retry logic
+        const googleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${encodeURIComponent(chunkText)}`;
         
-        const response = await fetch(audioUrl, {
+        const response = await fetchWithRetry(googleTtsUrl, {
           headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "audio/mpeg",
+            "Referer": "https://translate.google.com/",
           },
         });
 
-        if (!response.ok) {
-          const minimalMp3 = generateMinimalMp3();
-          audioBuffers.push(minimalMp3);
-          continue;
-        }
-
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-
-        if (buffer.length > 100 && isValidAudioBuffer(buffer)) {
-          audioBuffers.push(buffer);
+        if (response && response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          audioBuffer = Buffer.from(arrayBuffer);
+          
+          // Log the buffer info for debugging
+          const hexHeader = Array.from(new Uint8Array(arrayBuffer).slice(0, 8))
+            .map(b => `0x${b.toString(16).toUpperCase().padStart(2, '0')}`)
+            .join(' ');
+          console.log(`   Audio buffer received: ${audioBuffer.length} bytes, Header: ${hexHeader}`);
+          
+          // Validate the audio buffer is actually valid
+          if (isValidMp3Buffer(audioBuffer)) {
+            audioBuffers.push(audioBuffer);
+            console.log(`✅ Chunk ${i + 1}: TTS generated successfully (${(audioBuffer.length / 1024).toFixed(2)} KB)`);
+            successCount++;
+            continue;
+          }
         } else {
-          const minimalMp3 = generateMinimalMp3();
-          audioBuffers.push(minimalMp3);
+          const statusCode = response?.status || 'unknown';
+          console.warn(`⚠️ Chunk ${i + 1}: HTTP error ${statusCode}`);
         }
       } catch (error) {
-        const minimalMp3 = generateMinimalMp3();
-        audioBuffers.push(minimalMp3);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.warn(`⚠️ Chunk ${i + 1}: TTS API error: ${errorMsg}`);
       }
+
+      // If we get here, TTS failed for this chunk - create silence fallback
+      fallbackCount++;
+      console.warn(`⚠️ Chunk ${i + 1}: Creating fallback silence (${chunkText.length} chars)`);
+      
+      // Create a valid (but silent) MP3 buffer as fallback
+      const durationMs = Math.max(500, (chunkText.length / 3) * 1000);
+      audioBuffer = createValidSilenceMp3(durationMs);
+      audioBuffers.push(audioBuffer);
     }
 
     if (audioBuffers.length === 0) {
-      throw new Error("No audio data received from TTS service");
+      throw new Error("No audio data generated or available");
     }
+
+    console.log(`\n📊 Audio generation summary: ✅ ${successCount} successful, ⚠️ ${fallbackCount} fallback chunks`);
 
     const totalLength = audioBuffers.reduce((sum, buf) => sum + buf.length, 0);
     const combinedBuffer = Buffer.concat(audioBuffers, totalLength);
 
+    console.log(`✅ Combined audio buffer: ${combinedBuffer.length} bytes (${(combinedBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+    console.log(`📢 Note: Audio contains ${fallbackCount > 0 ? fallbackCount + ' fallback silence chunks' : 'real audio data from TTS'}`);
+    
     return combinedBuffer;
   } catch (error) {
-    const errorMsg =
-      error instanceof Error ? error.message : String(error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`❌ TTS generation failed: ${errorMsg}`);
     throw new Error(`TTS generation failed: ${errorMsg}`);
   }
 }

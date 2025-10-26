@@ -9,6 +9,7 @@ import { analyzeSentimentsBatch, type SentimentResult } from "./agents/sentiment
 import { sendEmailDigest } from "./agents/emailer";
 import { generateDigestPDF } from "./agents/pdfGenerator";
 import { uploadAudioToSupabase } from "./storage";
+import { translateArticles } from "./agents/languageTranslator";
 import logger from "./logger";
 
 export interface PipelineInput {
@@ -98,9 +99,55 @@ export const createNewsPipeline = () => {
       };
     },
   });
+
+  const translationStep = new RunnableLambda({
+    func: async (context: PipelineContext): Promise<PipelineContext> => {
+      if (context.input.language.toLowerCase() === "english" || context.input.language.toLowerCase() === "en") {
+        logger.info(`Step 2: Translation skipped (English selected)`);
+        return context;
+      }
+
+      logger.info(`Step 2: Translating articles to ${context.input.language}`);
+      try {
+        const translatedItems = await translateArticles(
+          context.digest.items.map((item) => ({
+            title: item.title,
+            summary: item.summary,
+            source: item.source || undefined,
+            link: item.link || undefined,
+            pubDate: item.pubDate || undefined,
+          })),
+          context.input.language
+        );
+
+        logger.info(`Translated ${translatedItems.length} articles`);
+        const updatedItems = context.digest.items.map((item, index) => ({
+          ...item,
+          title: translatedItems[index]?.title || item.title,
+          summary: translatedItems[index]?.summary || item.summary,
+        }));
+
+        return {
+          ...context,
+          digest: {
+            ...context.digest,
+            items: updatedItems,
+          },
+        };
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        if (errorMsg.includes("quota") || errorMsg.includes("429")) {
+          logger.warn(`⚠️ Translation skipped due to quota limit. Continuing with original content.`);
+          return context;
+        }
+        throw error;
+      }
+    },
+  });
+
   const audioScriptStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`Step 2: Generating audio script in ${context.input.language}`);
+      logger.info(`Step 3: Generating audio script in ${context.input.language}`);
       const audioScript = await generateAudioScript(
         context.digest.items.map((item) => ({
           title: item.title,
@@ -119,8 +166,8 @@ export const createNewsPipeline = () => {
   
   const parallelStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`Step 3: Tracking user interests in parallel`);
-      logger.info(`Step 4: Analyzing sentiments in parallel`);
+      logger.info(`Step 4: Tracking user interests in parallel`);
+      logger.info(`Step 5: Analyzing sentiments in parallel`);
 
       const articleTitles = context.digest.items.map((item) => item.title);
       const [suggestedTopics, sentimentResults] = await Promise.all([
@@ -146,14 +193,13 @@ export const createNewsPipeline = () => {
   
   const audioGenerationStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`Step 5: Generating audio file`);
+      logger.info(`Step 6: Generating audio file`);
       const audioBuffer = await generateAudio(
         context.audioScript,
         context.input.language
       );
       const audioFileName = `news-digest-${Date.now()}.mp3`;
       
-      // Save audio to Supabase storage
       const audioUrl = await uploadAudioToSupabase(
         audioBuffer instanceof Buffer ? audioBuffer : Buffer.from(audioBuffer),
         context.input.userId,
@@ -173,7 +219,7 @@ export const createNewsPipeline = () => {
   });
   const enrichmentStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`📊 Step 6: Enriching articles with sentiment data`);
+      logger.info(`📊 Step 7: Enriching articles with sentiment data`);
 
       const enrichedArticles: EnrichedArticle[] = context.digest.items.map(
         (item, index) => ({
@@ -197,10 +243,9 @@ export const createNewsPipeline = () => {
     },
   });
 
-  // Step 7: Generate PDF
   const pdfGenerationStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`📄 Step 7: Generating PDF in ${context.input.language}`);
+      logger.info(`📄 Step 8: Generating PDF in ${context.input.language}`);
       
       const enrichedArticles = context.enrichedArticles || context.digest.items.map(
         (item, index) => ({
@@ -308,6 +353,7 @@ export const createNewsPipeline = () => {
 
   const pipeline = RunnableSequence.from([
     collectorStep,
+    translationStep,
     audioScriptStep,
     parallelStep,
     audioGenerationStep,
