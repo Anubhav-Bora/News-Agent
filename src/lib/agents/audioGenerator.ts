@@ -164,7 +164,7 @@ function createValidSilenceMp3(durationMs: number = 1000): Buffer {
 async function fetchWithRetry(
   url: string,
   options: { headers: Record<string, string> },
-  maxRetries: number = 3
+  maxRetries: number = 5
 ): Promise<Response | null> {
   let lastError: Error | null = null;
   
@@ -172,7 +172,7 @@ async function fetchWithRetry(
     try {
       // Create an abort controller for timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
       
       try {
         const response = await fetch(url, {
@@ -188,8 +188,16 @@ async function fetchWithRetry(
         
         if (response.status === 429 || response.status === 503) {
           // Rate limited or service unavailable, retry with backoff
-          const backoffMs = Math.pow(2, attempt) * 1000;
+          const backoffMs = Math.pow(2, attempt) * 2000;
           console.warn(`⚠️ Rate limited (HTTP ${response.status}). Retrying in ${backoffMs}ms... (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, backoffMs));
+          continue;
+        }
+        
+        // For HTTP 400 errors, continue to next attempt
+        if (response.status === 400 && attempt < maxRetries - 1) {
+          console.warn(`⚠️ HTTP 400 - Bad Request. Retrying... (attempt ${attempt + 1}/${maxRetries})`);
+          const backoffMs = Math.pow(2, attempt) * 1000;
           await new Promise(resolve => setTimeout(resolve, backoffMs));
           continue;
         }
@@ -202,7 +210,7 @@ async function fetchWithRetry(
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < maxRetries - 1) {
-        const backoffMs = Math.pow(2, attempt) * 500;
+        const backoffMs = Math.pow(2, attempt) * 1000;
         console.warn(`⚠️ TTS request failed: ${lastError.message}. Retrying in ${backoffMs}ms... (attempt ${attempt + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, backoffMs));
       }
@@ -211,6 +219,74 @@ async function fetchWithRetry(
   
   if (lastError) {
     console.error(`❌ TTS request failed after ${maxRetries} attempts: ${lastError.message}`);
+  }
+  
+  return null;
+}
+
+// Alternative TTS API using gTTS (Google Text-to-Speech) endpoint
+async function fetchAudioFromAlternativeSource(
+  text: string,
+  langCode: string
+): Promise<Buffer | null> {
+  try {
+    if (!process.env.GOOGLE_API_KEY) {
+      console.warn("⚠️ GOOGLE_API_KEY not set for alternative TTS");
+      return null;
+    }
+
+    // Convert language code to full locale code if needed
+    const localeMap: Record<string, string> = {
+      "hi": "hi-IN",
+      "as": "as-IN",
+      "bn": "bn-IN",
+      "gu": "gu-IN",
+      "kn": "kn-IN",
+      "ml": "ml-IN",
+      "mr": "mr-IN",
+      "pa": "pa-IN",
+      "ta": "ta-IN",
+      "te": "te-IN",
+      "or": "or-IN",
+      "ur": "ur-PK",
+      "en": "en-US",
+    };
+
+    const localeCode = localeMap[langCode] || `${langCode}-IN`;
+
+    // Try Google Cloud Text-to-Speech API
+    const apiUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${process.env.GOOGLE_API_KEY}`;
+    
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        input: { text },
+        voice: {
+          languageCode: localeCode,
+          ssmlGender: 'NEUTRAL',
+        },
+        audioConfig: {
+          audioEncoding: 'MP3',
+          pitch: 0,
+          speakingRate: 1,
+        },
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { audioContent?: string };
+      if (data.audioContent) {
+        return Buffer.from(data.audioContent, 'base64');
+      }
+    } else {
+      const errorBody = await response.text();
+      console.warn(`⚠️ Google Cloud TTS API error: HTTP ${response.status} - ${errorBody}`);
+    }
+  } catch (err) {
+    console.warn(`⚠️ Alternative TTS source failed: ${err instanceof Error ? err.message : String(err)}`);
   }
   
   return null;
@@ -239,16 +315,42 @@ export async function generateAudio(text: string, lang: string | unknown = "en")
       console.log(`\n📦 Processing chunk ${i + 1}/${chunks.length} (${chunkText.length} chars)`);
 
       try {
-        // Using Google Translate TTS API with retry logic
-        const googleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${encodeURIComponent(chunkText)}`;
-        
-        const response = await fetchWithRetry(googleTtsUrl, {
-          headers: {
+        // Try multiple header configurations for better compatibility
+        const headerConfigs: Record<string, string>[] = [
+          {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "audio/mpeg",
             "Referer": "https://translate.google.com/",
+            "Accept-Language": "en-US,en;q=0.9",
           },
-        });
+          {
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "audio/mp3, audio/mpeg",
+            "Referer": "https://translate.google.com/",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+          {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "audio/*",
+            "Referer": "https://translate.google.com/",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+        ];
+
+        let response: Response | null = null;
+        for (let headerIdx = 0; headerIdx < headerConfigs.length; headerIdx++) {
+          const googleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${langCode}&q=${encodeURIComponent(chunkText)}`;
+          
+          console.log(`   Attempt ${headerIdx + 1}/3: Trying with header config ${headerIdx + 1}...`);
+          response = await fetchWithRetry(googleTtsUrl, {
+            headers: headerConfigs[headerIdx],
+          }, 2);
+
+          if (response && response.ok) {
+            console.log(`   ✅ Response OK with config ${headerIdx + 1}`);
+            break;
+          }
+        }
 
         if (response && response.ok) {
           const arrayBuffer = await response.arrayBuffer();
@@ -266,10 +368,24 @@ export async function generateAudio(text: string, lang: string | unknown = "en")
             console.log(`✅ Chunk ${i + 1}: TTS generated successfully (${(audioBuffer.length / 1024).toFixed(2)} KB)`);
             successCount++;
             continue;
+          } else {
+            console.warn(`⚠️ Chunk ${i + 1}: Invalid audio buffer received, trying alternative source...`);
           }
         } else {
           const statusCode = response?.status || 'unknown';
-          console.warn(`⚠️ Chunk ${i + 1}: HTTP error ${statusCode}`);
+          console.warn(`⚠️ Chunk ${i + 1}: Google Translate API returned HTTP ${statusCode}, trying alternative...`);
+        }
+
+        // Second attempt: Try alternative TTS source (Google Cloud Text-to-Speech API)
+        if (process.env.GOOGLE_API_KEY) {
+          console.log(`   Trying alternative TTS source (Google Cloud)...`);
+          const altBuffer = await fetchAudioFromAlternativeSource(chunkText, langCode);
+          if (altBuffer && isValidMp3Buffer(altBuffer)) {
+            audioBuffers.push(altBuffer);
+            console.log(`✅ Chunk ${i + 1}: Alternative TTS generated successfully (${(altBuffer.length / 1024).toFixed(2)} KB)`);
+            successCount++;
+            continue;
+          }
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);

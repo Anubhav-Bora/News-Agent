@@ -4,7 +4,6 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { analyzeSentimentsBatch } from "./sentiment";
 
-// Enhanced schemas with sentiment included
 export const NewsItemSchema = z.object({
   title: z.string(),
   link: z.string().nullable(),
@@ -82,7 +81,6 @@ const FEEDS: Record<string, string[]> = {
   ]
 };
 
-// Expanded state-specific keywords for better matching
 const STATE_CITY_MAPPING: Record<string, string[]> = {
   "ap": ["Andhra Pradesh", "AP", "Hyderabad", "Vijayawada", "Visakhapatnam", "Warangal", "Tirupati", "Nellore"],
   "ar": ["Arunachal Pradesh", "Itanagar", "Pasighat", "Tawang"],
@@ -118,8 +116,6 @@ const STATE_CITY_MAPPING: Record<string, string[]> = {
   "ld": ["Lakshadweep", "Kavaratti"],
   "py": ["Puducherry", "Pondicherry", "Yanam", "Mahe"]
 };
-
-// Removed old STATE_KEYWORDS - now using STATE_CITY_MAPPING instead
 
 async function fetchRssItems(feedUrl: string) {
   try {
@@ -352,22 +348,19 @@ export async function collectDailyDigest(
   location?: string,
   state?: string
 ): Promise<DailyDigest> {
-  // Special handling for "all" topic - collect from each category equally
   if (topic === "all") {
     console.log(`📰 Collecting digest for topic: all (equal distribution from all categories)`);
     
     const categories = ["tech", "sports", "national", "international"];
     const allItems: NewsItem[] = [];
     
-    // Fetch articles from each category
     for (const category of categories) {
       const feeds = FEEDS[category] ?? [];
       const rawGroups = await Promise.all(feeds.map((f) => fetchRssItems(f).catch(() => [])));
       const categoryArticles = uniqueByLink(rawGroups.flat())
         .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
-        .slice(0, 4); // 4 articles per category = 16 total
+        .slice(0, 4);
       
-      // Process each category's articles through AI with category label
       const categoryText = categoryArticles
         .map((a, idx) => 
           `${idx + 1}. Title: ${a.title}\nLink: ${a.link ?? ""}\nSource: ${a.source ?? ""}\nPubDate: ${a.pubDate ?? ""}\nDescription: ${a.description}`
@@ -380,7 +373,6 @@ export async function collectDailyDigest(
       }
     }
     
-    // Ensure we have at least 10 articles total
     if (allItems.length < 10) {
       console.warn(`⚠️ Only collected ${allItems.length} articles. Fetching additional from "all" feeds...`);
       const feeds = FEEDS["all"];
@@ -400,7 +392,6 @@ export async function collectDailyDigest(
       })));
     }
 
-    // Analyze sentiments
     console.log(`🔍 Analyzing sentiments for ${allItems.length} articles...`);
     const sentimentResults = await analyzeSentimentsBatch(
       allItems.map((i) => ({
@@ -438,7 +429,6 @@ export async function collectDailyDigest(
     };
   }
 
-  // Original logic for specific topics
   const feeds = FEEDS[topic] ?? FEEDS["all"];
   
   console.log(`📰 Collecting digest for topic: ${topic}${state ? ` (State: ${state})` : ""}`);
@@ -448,7 +438,6 @@ export async function collectDailyDigest(
     .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
     .slice(0, 50);
 
-  // Filter articles by state if state is provided and topic is "state"
   if (topic === "state" && state && STATE_CITY_MAPPING[state]) {
     const stateKeywords = STATE_CITY_MAPPING[state];
     const keywordRegex = new RegExp(stateKeywords.join("|"), "i");
@@ -459,25 +448,21 @@ export async function collectDailyDigest(
     
     console.log(`🔍 Filtered to ${rawArticles.length} articles for state: ${state}`);
     
-    // If no articles found for the state, fetch more articles and retry with broader matching
     if (rawArticles.length === 0) {
       console.warn(`⚠️ No articles found for state: ${state}. Fetching more articles and retrying...`);
       
-      // Fetch more articles (up to 100) from national feeds to increase chances
       const moreFeeds = FEEDS["national"];
       const moreRawGroups = await Promise.all(moreFeeds.map((f) => fetchRssItems(f).catch(() => [])));
       const moreArticles = uniqueByLink(moreRawGroups.flat())
         .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
         .slice(0, 100);
       
-      // Try filtering again with the expanded set
       rawArticles = moreArticles.filter(article => 
         keywordRegex.test(article.title) || keywordRegex.test(article.description)
       );
       
       console.log(`🔍 After retry with more articles: ${rawArticles.length} articles found`);
       
-      // If still no articles, use AI-based filtering to identify relevant articles
       if (rawArticles.length === 0) {
         console.warn(`⚠️ Still no articles found for state: ${state}. Using AI-based filtering...`);
         const mappedArticles = moreArticles.map(a => ({
@@ -498,7 +483,6 @@ export async function collectDailyDigest(
           rawArticles = aiFilteredArticles as RSSItem[];
           console.log(`✅ AI filtering identified ${rawArticles.length} articles for state: ${state}`);
         } else {
-          // Final fallback: use top 15 national articles
           console.warn(`⚠️ AI filtering found no articles. Using top national articles as fallback.`);
           rawArticles = moreArticles.slice(0, 15);
         }
@@ -633,6 +617,16 @@ ${articlesText}`;
     try {
       // More aggressive JSON repair
       let fixedOutput = cleanedOutput;
+      
+      // First, fix common escaping issues before character-by-character parsing
+      // Fix invalid escape sequences like \' to just '
+      fixedOutput = fixedOutput.replace(/\\'/g, "'");
+      
+      // Fix invalid escape sequences like \/ to /
+      fixedOutput = fixedOutput.replace(/\\\//g, "/");
+      
+      // Fix broken unicode escapes and other invalid escape patterns
+      fixedOutput = fixedOutput.replace(/\\([^"\\\/bfnrtu])/g, '$1');
       
       // Replace unescaped newlines and carriage returns inside the string
       // This is complex, so we use a different approach: parse character by character

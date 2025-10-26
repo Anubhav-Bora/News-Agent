@@ -245,7 +245,7 @@ export const createNewsPipeline = () => {
 
   const pdfGenerationStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`📄 Step 8: Generating PDF in ${context.input.language}`);
+      logger.info(`📄 Step 8: Generating PDF in English (always)`);
       
       const enrichedArticles = context.enrichedArticles || context.digest.items.map(
         (item, index) => ({
@@ -278,7 +278,7 @@ export const createNewsPipeline = () => {
           })) as any,
           {},
           context.input.userId,
-          context.input.language,
+          "en",
           context.digest.weather
         );
 
