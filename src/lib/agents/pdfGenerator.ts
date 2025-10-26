@@ -5,6 +5,9 @@ import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 
+const fontCache = new Map<string, { buffer: ArrayBuffer; timestamp: number }>();
+const CACHE_DURATION_MS = 25 * 60 * 60 * 1000;
+
 interface Article {
   title: string;
   summary: string;
@@ -34,7 +37,6 @@ function wrapText(text: string, maxCharsPerLine: number): string[] {
   return lines;
 }
 
-// Language mapping for translation
 const languageMap: Record<string, string> = {
   "hi": "Hindi",
   "hindi": "Hindi",
@@ -60,8 +62,32 @@ const languageMap: Record<string, string> = {
   "punjabi": "Punjabi",
 };
 
+async function loadCustomFont(fontUrl: string): Promise<ArrayBuffer> {
+  const now = Date.now();
+  const cached = fontCache.get(fontUrl);
+  
+  if (cached && (now - cached.timestamp) < CACHE_DURATION_MS) {
+    console.log(`✅ Using cached font`);
+    return cached.buffer;
+  }
+  
+  try {
+    console.log(`📥 Downloading font...`);
+    const response = await fetch(fontUrl);
+    if (!response.ok) throw new Error(`Failed to load font: ${fontUrl}`);
+    const buffer = await response.arrayBuffer();
+    
+    fontCache.set(fontUrl, { buffer, timestamp: now });
+    console.log(`✅ Font loaded successfully`);
+    
+    return buffer;
+  } catch (err) {
+    console.error(`❌ Font download failed:`, err);
+    throw err;
+  }
+}
+
 async function translateArticles(articles: Article[], targetLanguage: string): Promise<Article[]> {
-  // If English or already in target language, no translation needed
   if (targetLanguage.toLowerCase() === "en" || targetLanguage.toLowerCase() === "english") {
     return articles;
   }
@@ -104,7 +130,6 @@ Do NOT include any other text.`
           summary: article.summary,
         });
 
-        // Parse the translated response
         const titleMatch = response.match(/TITLE:\s*(.+?)(?:\nSUMMARY:|$)/);
         const summaryMatch = response.match(/SUMMARY:\s*(.+?)$/);
 
@@ -197,14 +222,76 @@ function generateRecommendations(
   return recommendations.length > 0 ? recommendations : ["Continue current monitoring strategy. No alerts at this time."];
 }
 
-// Helper function to sanitize text for PDF rendering
 function sanitizeTextForPDF(text: string): string {
-  // For PDF compatibility, remove only problematic control characters
-  // Keep the actual content (including Unicode) as-is
-  return text
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '') // Remove control characters
-    .trim();
+  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '').trim();
 }
+
+function drawBarChart(
+  page: PDFPage,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  data: { label: string; value: number; color: ReturnType<typeof rgb> }[],
+  maxValue: number,
+  font: any = StandardFonts.Helvetica
+) {
+  const barWidth = width / data.length;
+  const padding = 30;
+  
+  page.drawRectangle({
+    x: x - 5,
+    y: y - height - 5,
+    width: width + 10,
+    height: height + 40,
+    borderColor: rgb(0.8, 0.8, 0.8),
+    borderWidth: 1,
+  });
+
+  for (let i = 0; i < data.length; i++) {
+    const barHeight = (data[i].value / maxValue) * height;
+    const barX = x + i * barWidth + 5;
+    const barY = y - barHeight;
+
+    page.drawRectangle({
+      x: barX,
+      y: barY,
+      width: barWidth - 10,
+      height: barHeight,
+      color: data[i].color,
+      borderWidth: 0,
+    });
+
+    page.drawText(data[i].value.toString(), {
+      x: barX + (barWidth - 30) / 2,
+      y: barY + barHeight + 5,
+      size: 9,
+      font: font,
+      color: rgb(0, 0, 0),
+    });
+
+    page.drawText(data[i].label, {
+      x: barX,
+      y: y - height - 20,
+      size: 8,
+      font: font,
+      color: rgb(0.4, 0.4, 0.4),
+    });
+  }
+}
+
+const languageFontMap: Record<string, string> = {
+  "hi": "https://fonts.gstatic.com/s/notosansdevanagari/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
+  "gu": "https://fonts.gstatic.com/s/notosansgujarati/v27/-F6hfjtqLzM2JPrysIq46ilQkw.ttf",
+  "mr": "https://fonts.gstatic.com/s/notosansdevanagari/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
+  "ta": "https://fonts.gstatic.com/s/notosanstamil/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
+  "te": "https://fonts.gstatic.com/s/notosanstelugu/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
+  "kn": "https://fonts.gstatic.com/s/notosanskannada/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
+  "ml": "https://fonts.gstatic.com/s/notosansmalayalam/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
+  "bn": "https://fonts.gstatic.com/s/notosansbengali/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
+  "pa": "https://fonts.gstatic.com/s/notosansgurmukhi/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
+  "as": "https://fonts.gstatic.com/s/notosansassamese/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
+};
 
 export async function generateDigestPDF(
   articles: Article[],
@@ -213,11 +300,9 @@ export async function generateDigestPDF(
   language = "en",
   weather?: { location: string; temperature: number; condition: string; humidity?: number; windSpeed?: number }
 ): Promise<string | null> {
-  // Translate articles to target language
-  console.log(`📝 Translating articles to ${languageMap[language.toLowerCase()] || language}...`);
+  console.log(`📝 Generating PDF in ${languageMap[language.toLowerCase()] || language}...`);
   let articlesToProcess = await translateArticles(articles, language);
 
-  // Sanitize article content for PDF compatibility
   const sanitizedArticles = articlesToProcess.map(article => ({
     ...article,
     title: sanitizeTextForPDF(article.title),
@@ -227,10 +312,30 @@ export async function generateDigestPDF(
   }));
 
   const pdfDoc = await PDFDocument.create();
-  const timesFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-  const timesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
-  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  
+  let contentFont, contentFontBold, headingFont, headingFontBold;
+  const langCode = language.toLowerCase().replace("english", "en").replace("hindi", "hi");
+  
+  try {
+    if (languageFontMap[langCode] && langCode !== "en") {
+      const fontBuffer = await loadCustomFont(languageFontMap[langCode]);
+      contentFont = await pdfDoc.embedFont(fontBuffer);
+      contentFontBold = contentFont;
+      headingFont = contentFont;
+      headingFontBold = contentFont;
+    } else {
+      contentFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      contentFontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      headingFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+      headingFontBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+    }
+  } catch (err) {
+    console.warn(`⚠️ Failed to load Unicode font for ${language}. Falling back to standard fonts.`);
+    contentFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    contentFontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    headingFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+    headingFontBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+  }
 
   const sentimentCounts = { positive: 0, negative: 0, neutral: 0 };
   const topicCounts: Record<string, number> = {};
@@ -248,10 +353,9 @@ export async function generateDigestPDF(
 
   const recommendations = generateRecommendations(articles, topicCounts, sentimentCounts);
 
-  const margin = 35;
+  const margin = 40;
   const pageWidth = 595 - 2 * margin;
 
-  // Map language codes to display names
   const languageNames: Record<string, string> = {
     "hi": "हिंदी",
     "en": "English",
@@ -264,334 +368,842 @@ export async function generateDigestPDF(
     "kn": "ಕನ್ನಡ",
     "ml": "മലയാളം",
     "pa": "ਪੰਜਾਬੀ",
-    "hindi": "हिंदी",
-    "english": "English",
-    "gujarati": "ગુજરાતી",
-    "marathi": "मराठी",
-    "assamese": "অসমীয়া",
-    "bengali": "বাংলা",
-    "tamil": "தமிழ்",
-    "telugu": "తెలుగు",
-    "kannada": "ಕನ್ನಡ",
-    "malayalam": "മലയാളം",
-    "punjabi": "ਪੰਜਾਬੀ",
   };
 
   const displayLanguage = languageNames[language.toLowerCase()] || language;
+  const currentDate = dayjs().format("MMMM DD, YYYY");
 
-  // Helper function to add header
-  const addHeader = (page: PDFPage, title: string) => {
-    let yPos = 790;
-    page.drawText("THE DAILY DIGEST", { x: margin, y: yPos, size: 10, font: timesBold, color: rgb(0, 0, 0) });
-    page.drawText(`${title} (${displayLanguage})`, { x: 595 - margin - 200, y: yPos, size: 10, font: timesBold, color: rgb(0, 0, 0) });
+  const addHeader = (page: PDFPage, title: string, isFirstPage: boolean = false) => {
+    let yPos = 800;
     
-    // Add weather info if available
-    if (weather) {
-      yPos -= 12;
-      const weatherText = `🌡️ ${weather.location}: ${weather.temperature}°C, ${weather.condition}${weather.humidity ? ` (${weather.humidity}% humidity)` : ""}`;
-      page.drawText(weatherText, { x: margin, y: yPos, size: 8, font: helvetica, color: rgb(0.3, 0.3, 0.3) });
+    if (isFirstPage) {
+      page.drawText("THE DAILY DIGEST", {
+        x: margin,
+        y: yPos,
+        size: 24,
+        font: headingFontBold,
+        color: rgb(0.1, 0.1, 0.1),
+      });
+
+      page.drawText("COMPREHENSIVE NEWS ANALYSIS & INSIGHTS", {
+        x: margin,
+        y: yPos - 22,
+        size: 10,
+        font: contentFont,
+        color: rgb(0.5, 0.5, 0.5),
+      });
+
+      page.drawLine({
+        start: { x: margin, y: yPos - 30 },
+        end: { x: 595 - margin, y: yPos - 30 },
+        thickness: 2,
+        color: rgb(0.1, 0.1, 0.1),
+      });
+
+      page.drawText(currentDate, {
+        x: margin,
+        y: yPos - 45,
+        size: 9,
+        font: contentFont,
+        color: rgb(0.6, 0.6, 0.6),
+      });
+
+      page.drawText(`Language: ${displayLanguage}`, {
+        x: 595 - margin - 100,
+        y: yPos - 45,
+        size: 9,
+        font: contentFont,
+        color: rgb(0.6, 0.6, 0.6),
+      });
+
+      if (weather) {
+        page.drawText(
+          `${weather.location} • ${weather.temperature}°C • ${weather.condition}`,
+          { x: margin, y: yPos - 60, size: 8, font: contentFont, color: rgb(0.4, 0.4, 0.4) }
+        );
+      }
+
+      return yPos - 80;
     }
-    
-    yPos -= 8;
-    page.drawLine({ start: { x: margin, y: yPos }, end: { x: 595 - margin, y: yPos }, thickness: 1.5, color: rgb(0, 0, 0) });
-    return yPos - 20;
+
+    page.drawText(title, {
+      x: margin,
+      y: yPos,
+      size: 16,
+      font: headingFontBold,
+      color: rgb(0.1, 0.1, 0.1),
+    });
+
+    page.drawLine({
+      start: { x: margin, y: yPos - 8 },
+      end: { x: 595 - margin, y: yPos - 8 },
+      thickness: 1.5,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+
+    return yPos - 30;
   };
 
-  // Helper function to add footer
   const addFooter = (page: PDFPage, pageNum: number) => {
-    page.drawLine({ start: { x: margin, y: 70 }, end: { x: 595 - margin, y: 70 }, thickness: 1, color: rgb(0, 0, 0) });
-    page.drawText(`Page ${pageNum}`, { x: 595 - margin - 30, y: 58, size: 7, font: helvetica, color: rgb(0.4, 0.4, 0.4) });
+    page.drawLine({
+      start: { x: margin, y: 50 },
+      end: { x: 595 - margin, y: 50 },
+      thickness: 0.5,
+      color: rgb(0.8, 0.8, 0.8),
+    });
+
+    page.drawText(`${dayjs().format("YYYY-MM-DD HH:mm")}`, {
+      x: margin,
+      y: 35,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.6, 0.6, 0.6),
+    });
+
+    page.drawText(`Page ${pageNum}`, {
+      x: 595 - margin - 30,
+      y: 35,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.6, 0.6, 0.6),
+    });
   };
 
-  // PAGES 1-5: Article Display Pages
   let pageNumber = 1;
   const articlesPerPage = 3;
   let currentPageArticles = 0;
   let articlePage = pdfDoc.addPage([595, 842]);
-  let articleYPos = addHeader(articlePage, "TOP STORIES");
+  let articleYPos = addHeader(articlePage, "TOP STORIES", true);
 
   for (let i = 0; i < sanitizedArticles.length; i++) {
     const article = sanitizedArticles[i];
 
-    // Add new page if needed
     if (currentPageArticles >= articlesPerPage) {
       addFooter(articlePage, pageNumber);
       pageNumber++;
       if (pageNumber <= 5) {
         articlePage = pdfDoc.addPage([595, 842]);
-        articleYPos = addHeader(articlePage, `TOP STORIES (CONTINUED)`);
+        articleYPos = addHeader(articlePage, "TOP STORIES (CONTINUED)");
         currentPageArticles = 0;
       } else {
-        break; // Stop after 5 pages
+        break;
       }
     }
 
-    articleYPos -= 20;
+    articleYPos -= 15;
 
-    // Article title
-    const titleLines = wrapText(article.title, 80);
-    articlePage.drawText(titleLines[0], { x: margin, y: articleYPos, size: 12, font: timesBold, color: rgb(0, 0, 0) });
+    articlePage.drawRectangle({
+      x: margin - 5,
+      y: articleYPos - 95,
+      width: pageWidth + 10,
+      height: 100,
+      color: rgb(0.98, 0.98, 0.98),
+      borderColor: rgb(0.85, 0.85, 0.85),
+      borderWidth: 0.5,
+    });
+
+    const titleLines = wrapText(article.title, 85);
+    articlePage.drawText(titleLines[0], {
+      x: margin + 5,
+      y: articleYPos,
+      size: 13,
+      font: headingFontBold,
+      color: rgb(0, 0, 0),
+    });
+
     if (titleLines.length > 1) {
       articleYPos -= 14;
-      articlePage.drawText(titleLines.slice(1).join(" "), { x: margin, y: articleYPos, size: 11, font: timesBold, color: rgb(0, 0, 0) });
+      articlePage.drawText(titleLines.slice(1).join(" "), {
+        x: margin + 5,
+        y: articleYPos,
+        size: 11,
+        font: headingFontBold,
+        color: rgb(0, 0, 0),
+      });
     }
-    articleYPos -= 16;
 
-    // Metadata row (source, date, sentiment)
+    articleYPos -= 14;
+
     const metadataText = `${article.source || "Unknown Source"} • ${article.pubDate || "Date N/A"}`;
-    articlePage.drawText(metadataText, { x: margin, y: articleYPos, size: 8, font: helvetica, color: rgb(0.5, 0.5, 0.5) });
-
-    // Sentiment badge
-    const sentimentColor = 
-      article.sentiment === "positive" ? rgb(0, 0.6, 0) :
-      article.sentiment === "negative" ? rgb(0.8, 0, 0) :
-      rgb(0.4, 0.4, 0.4);
-    
-    articlePage.drawRectangle({ 
-      x: 595 - margin - 80, 
-      y: articleYPos - 10, 
-      width: 70, 
-      height: 14, 
-      color: sentimentColor, 
-      borderWidth: 0
-    });
-    
-    articlePage.drawText(article.sentiment.toUpperCase(), { 
-      x: 595 - margin - 75, 
-      y: articleYPos - 7, 
-      size: 8, 
-      font: helveticaBold, 
-      color: rgb(1, 1, 1) 
+    articlePage.drawText(metadataText, {
+      x: margin + 5,
+      y: articleYPos,
+      size: 7,
+      font: contentFont,
+      color: rgb(0.5, 0.5, 0.5),
     });
 
-    articleYPos -= 20;
+    const sentimentColor =
+      article.sentiment === "positive"
+        ? rgb(0.2, 0.7, 0.2)
+        : article.sentiment === "negative"
+          ? rgb(0.9, 0.2, 0.2)
+          : rgb(0.5, 0.5, 0.5);
 
-    // Article summary
-    const summaryLines = wrapText(article.summary, 85);
-    const linesToShow = Math.min(summaryLines.length, 4); // Max 4 lines of summary
+    articlePage.drawRectangle({
+      x: 595 - margin - 85,
+      y: articleYPos - 10,
+      width: 80,
+      height: 12,
+      color: sentimentColor,
+      borderWidth: 0,
+    });
+
+    articlePage.drawText(article.sentiment.toUpperCase(), {
+      x: 595 - margin - 82,
+      y: articleYPos - 8,
+      size: 7,
+      font: contentFontBold,
+      color: rgb(1, 1, 1),
+    });
+
+    articleYPos -= 12;
+
+    const summaryLines = wrapText(article.summary, 90);
+    const linesToShow = Math.min(summaryLines.length, 3);
 
     for (let j = 0; j < linesToShow; j++) {
-      articlePage.drawText(summaryLines[j], { x: margin, y: articleYPos, size: 9, font: helvetica, color: rgb(0.2, 0.2, 0.2) });
-      articleYPos -= 12;
+      articlePage.drawText(summaryLines[j], {
+        x: margin + 5,
+        y: articleYPos,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.2, 0.2, 0.2),
+      });
+      articleYPos -= 10;
     }
 
-    if (summaryLines.length > 4) {
-      articlePage.drawText("...", { x: margin, y: articleYPos, size: 9, font: helvetica, color: rgb(0.5, 0.5, 0.5) });
-      articleYPos -= 12;
+    if (summaryLines.length > 3) {
+      articlePage.drawText("...", {
+        x: margin + 5,
+        y: articleYPos,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.5, 0.5, 0.5),
+      });
     }
 
-    // Topic badge
-    articlePage.drawRectangle({ x: margin, y: articleYPos - 12, width: 60, height: 12, color: rgb(0.9, 0.9, 0.9), borderWidth: 0.5, borderColor: rgb(0, 0, 0) });
-    articlePage.drawText(article.topic, { x: margin + 4, y: articleYPos - 9, size: 7, font: helvetica, color: rgb(0, 0, 0) });
-
-    articleYPos -= 25;
+    articleYPos -= 15;
     currentPageArticles++;
 
-    // Add page break marker if needed
-    if (articleYPos < 100 && pageNumber < 5) {
+    if (articleYPos < 120 && pageNumber < 5) {
       addFooter(articlePage, pageNumber);
       pageNumber++;
       articlePage = pdfDoc.addPage([595, 842]);
-      articleYPos = addHeader(articlePage, `TOP STORIES (CONTINUED)`);
+      articleYPos = addHeader(articlePage, "TOP STORIES (CONTINUED)");
       currentPageArticles = 0;
     }
   }
 
-  // Finalize pages 1-5
   if (pageNumber <= 5) {
     addFooter(articlePage, pageNumber);
   }
 
-  // PAGE 6: Extended Analytics
   let page = pdfDoc.addPage([595, 842]);
-  let yPosition = addHeader(page, "EXTENDED ANALYTICS");
+  let yPosition = addHeader(page, "SENTIMENT ANALYSIS & KEY METRICS");
+  pageNumber++;
 
-  page.drawText("HISTORICAL TRENDS & ALERTS", { x: margin, y: yPosition, size: 14, font: timesBold, color: rgb(0, 0, 0) });
+  page.drawText("SENTIMENT DISTRIBUTION", {
+    x: margin,
+    y: yPosition,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+  yPosition -= 20;
+
+  const sentimentData = [
+    { label: "POSITIVE", value: sentimentCounts.positive, color: rgb(0.2, 0.7, 0.2) },
+    { label: "NEUTRAL", value: sentimentCounts.neutral, color: rgb(0.6, 0.6, 0.6) },
+    { label: "NEGATIVE", value: sentimentCounts.negative, color: rgb(0.9, 0.2, 0.2) },
+  ];
+
+  const maxSentiment = Math.max(...sentimentData.map(d => d.value), 1);
+  const barSpacing = (pageWidth - 40) / 3;
+
+  for (let i = 0; i < sentimentData.length; i++) {
+    const barX = margin + i * barSpacing + 15;
+    const barWidth = barSpacing - 30;
+    const barHeight = 120;
+    const dataHeight = (sentimentData[i].value / maxSentiment) * barHeight;
+
+    page.drawRectangle({
+      x: barX,
+      y: yPosition - dataHeight,
+      width: barWidth,
+      height: dataHeight,
+      color: sentimentData[i].color,
+      borderWidth: 0,
+    });
+
+    page.drawText(sentimentData[i].value.toString(), {
+      x: barX + barWidth / 2 - 10,
+      y: yPosition - dataHeight + 5,
+      size: 10,
+      font: headingFontBold,
+      color: rgb(0, 0, 0),
+    });
+
+    page.drawText(sentimentData[i].label, {
+      x: barX,
+      y: yPosition - barHeight - 15,
+      size: 9,
+      font: contentFontBold,
+      color: rgb(0.3, 0.3, 0.3),
+    });
+  }
+
+  yPosition -= 180;
+
+  page.drawRectangle({
+    x: margin,
+    y: yPosition - 120,
+    width: pageWidth,
+    height: 120,
+    color: rgb(0.95, 0.95, 0.95),
+    borderColor: rgb(0.8, 0.8, 0.8),
+    borderWidth: 1,
+  });
+
+  page.drawText("KEY METRICS", {
+    x: margin + 15,
+    y: yPosition - 10,
+    size: 11,
+    font: headingFontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+
+  const metrics = [
+    { label: "Total Articles", value: articles.length.toString() },
+    { label: "Unique Topics", value: Object.keys(topicCounts).length.toString() },
+    { label: "Avg Reliability", value: `${(calculateAverageReliability(articles) * 100).toFixed(0)}%` },
+    { label: "Coverage Span", value: `${Object.keys(sourceCount).length} sources` },
+  ];
+
+  let metricX = margin + 20;
+  let metricY = yPosition - 35;
+  const metricWidth = (pageWidth - 40) / 2;
+
+  for (let i = 0; i < metrics.length; i++) {
+    page.drawText(metrics[i].label, {
+      x: metricX,
+      y: metricY,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.5, 0.5, 0.5),
+    });
+
+    page.drawText(metrics[i].value, {
+      x: metricX,
+      y: metricY - 18,
+      size: 16,
+      font: headingFontBold,
+      color: rgb(0, 0.5, 0.9),
+    });
+
+    if (i % 2 === 1) {
+      metricX = margin + 20;
+      metricY -= 60;
+    } else {
+      metricX += metricWidth;
+    }
+  }
+
+  yPosition -= 160;
+
+  page.drawText("TOP SOURCES", {
+    x: margin,
+    y: yPosition,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+  yPosition -= 20;
+
+  const sortedSources = Object.entries(sourceCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  page.drawRectangle({
+    x: margin,
+    y: yPosition - (sortedSources.length * 18 + 25),
+    width: pageWidth,
+    height: sortedSources.length * 18 + 25,
+    borderColor: rgb(0.8, 0.8, 0.8),
+    borderWidth: 0.5,
+  });
+
+  page.drawRectangle({
+    x: margin,
+    y: yPosition - 20,
+    width: pageWidth,
+    height: 20,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+
+  page.drawText("SOURCE", {
+    x: margin + 10,
+    y: yPosition - 15,
+    size: 9,
+    font: headingFontBold,
+    color: rgb(1, 1, 1),
+  });
+
+  page.drawText("ARTICLES", {
+    x: 595 - margin - 80,
+    y: yPosition - 15,
+    size: 9,
+    font: headingFontBold,
+    color: rgb(1, 1, 1),
+  });
+
+  let sourceRowY = yPosition - 35;
+  for (const [source, count] of sortedSources) {
+    const bgColor = sourceRowY % 36 === 0 ? rgb(0.98, 0.98, 0.98) : rgb(1, 1, 1);
+    page.drawRectangle({
+      x: margin,
+      y: sourceRowY - 16,
+      width: pageWidth,
+      height: 16,
+      color: bgColor,
+      borderWidth: 0,
+    });
+
+    page.drawText(source, {
+      x: margin + 10,
+      y: sourceRowY - 12,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+
+    page.drawText(count.toString(), {
+      x: 595 - margin - 70,
+      y: sourceRowY - 12,
+      size: 8,
+      font: contentFontBold,
+      color: rgb(0, 0.5, 0.9),
+    });
+
+    sourceRowY -= 18;
+  }
+
+  addFooter(page, pageNumber);
+
+  page = pdfDoc.addPage([595, 842]);
+  yPosition = addHeader(page, "TOPIC ANALYSIS & TRENDS");
+  pageNumber++;
+
+  page.drawText("COVERAGE BY TOPIC", {
+    x: margin,
+    y: yPosition,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+  yPosition -= 20;
+
+  const sortedTopics = Object.entries(topicCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
+  const maxTopicCount = Math.max(...sortedTopics.map(t => t[1]), 1);
+
+  for (const [topic, count] of sortedTopics) {
+    const barLength = (count / maxTopicCount) * (pageWidth - 150);
+    const topicColor = rgb(Math.random() * 0.5 + 0.2, Math.random() * 0.5 + 0.2, Math.random() * 0.5 + 0.5);
+
+    page.drawText(topic, {
+      x: margin,
+      y: yPosition,
+      size: 9,
+      font: contentFont,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+
+    page.drawRectangle({
+      x: margin + 120,
+      y: yPosition - 8,
+      width: barLength,
+      height: 12,
+      color: topicColor,
+      borderWidth: 0,
+    });
+
+    page.drawText(count.toString(), {
+      x: margin + 130 + barLength,
+      y: yPosition - 6,
+      size: 8,
+      font: headingFontBold,
+      color: rgb(0, 0, 0),
+    });
+
+    yPosition -= 20;
+  }
+
+  yPosition -= 15;
+
+  page.drawText("SENTIMENT BY TOPIC", {
+    x: margin,
+    y: yPosition,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+  yPosition -= 20;
+
+  page.drawRectangle({
+    x: margin,
+    y: yPosition - (Array.from(topicSentiments.entries()).slice(0, 6).length * 28 + 25),
+    width: pageWidth,
+    height: Array.from(topicSentiments.entries()).slice(0, 6).length * 28 + 25,
+    borderColor: rgb(0.8, 0.8, 0.8),
+    borderWidth: 0.5,
+  });
+
+  page.drawRectangle({
+    x: margin,
+    y: yPosition - 20,
+    width: pageWidth,
+    height: 20,
+    color: rgb(0.15, 0.15, 0.15),
+  });
+
+  page.drawText("TOPIC", {
+    x: margin + 10,
+    y: yPosition - 15,
+    size: 8,
+    font: headingFontBold,
+    color: rgb(1, 1, 1),
+  });
+
+  page.drawText("+ POSITIVE", {
+    x: margin + 130,
+    y: yPosition - 15,
+    size: 8,
+    font: headingFontBold,
+    color: rgb(0.5, 1, 0.5),
+  });
+
+  page.drawText("- NEGATIVE", {
+    x: margin + 220,
+    y: yPosition - 15,
+    size: 8,
+    font: headingFontBold,
+    color: rgb(1, 0.5, 0.5),
+  });
+
+  page.drawText("~ NEUTRAL", {
+    x: margin + 310,
+    y: yPosition - 15,
+    size: 8,
+    font: headingFontBold,
+    color: rgb(0.8, 0.8, 0.8),
+  });
+
+  let topicRowY = yPosition - 35;
+  for (const [topic, sentiments] of Array.from(topicSentiments.entries()).slice(0, 6)) {
+    const bgColor = topicRowY % 56 === 0 ? rgb(0.98, 0.98, 0.98) : rgb(1, 1, 1);
+    page.drawRectangle({
+      x: margin,
+      y: topicRowY - 24,
+      width: pageWidth,
+      height: 24,
+      color: bgColor,
+      borderWidth: 0,
+    });
+
+    page.drawText(topic.substring(0, 20), {
+      x: margin + 10,
+      y: topicRowY - 12,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.2, 0.2, 0.2),
+    });
+
+    page.drawText(sentiments.positive.toString(), {
+      x: margin + 130,
+      y: topicRowY - 12,
+      size: 8,
+      font: contentFontBold,
+      color: rgb(0, 0.6, 0),
+    });
+
+    page.drawText(sentiments.negative.toString(), {
+      x: margin + 220,
+      y: topicRowY - 12,
+      size: 8,
+      font: contentFontBold,
+      color: rgb(0.9, 0, 0),
+    });
+
+    page.drawText(sentiments.neutral.toString(), {
+      x: margin + 310,
+      y: topicRowY - 12,
+      size: 8,
+      font: contentFontBold,
+      color: rgb(0.5, 0.5, 0.5),
+    });
+
+    topicRowY -= 28;
+  }
+
+  addFooter(page, pageNumber);
+
+  page = pdfDoc.addPage([595, 842]);
+  yPosition = addHeader(page, "KEY PHRASES & INSIGHTS");
+  pageNumber++;
+
+  page.drawText("TRENDING KEYWORDS", {
+    x: margin,
+    y: yPosition,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+  yPosition -= 20;
+
+  const topPhrases = Array.from(keyPhrases.entries()).slice(0, 12);
+  const phraseBoxWidth = (pageWidth - 30) / 3;
+
+  let phraseX = margin;
+  let phraseY = yPosition;
+  let phraseCount = 0;
+
+  for (const [phrase, count] of topPhrases) {
+    const bgColor = rgb(0.05 + phraseCount * 0.08, 0.3 + phraseCount * 0.04, 0.8 - phraseCount * 0.03);
+
+    page.drawRectangle({
+      x: phraseX,
+      y: phraseY - 32,
+      width: phraseBoxWidth - 10,
+      height: 32,
+      color: bgColor,
+      borderWidth: 0,
+    });
+
+    page.drawText(phrase, {
+      x: phraseX + 8,
+      y: phraseY - 12,
+      size: 9,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    });
+
+    page.drawText(`${count} mentions`, {
+      x: phraseX + 8,
+      y: phraseY - 23,
+      size: 7,
+      font: contentFont,
+      color: rgb(0.9, 0.9, 0.9),
+    });
+
+    phraseX += phraseBoxWidth;
+    if ((phraseCount + 1) % 3 === 0) {
+      phraseX = margin;
+      phraseY -= 40;
+    }
+    phraseCount++;
+  }
+
+  yPosition = phraseY - 40;
+
+  page.drawText("ACTIONABLE RECOMMENDATIONS", {
+    x: margin,
+    y: yPosition,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
   yPosition -= 25;
 
-  const historicalDates = Object.keys(historicalDigests).sort().slice(-7);
-  if (historicalDates.length > 0) {
-    page.drawText("7-DAY TREND SUMMARY", { x: margin, y: yPosition, size: 11, font: helveticaBold, color: rgb(0, 0, 0) });
-    yPosition -= 18;
+  for (let i = 0; i < recommendations.length; i++) {
+    const recLines = wrapText(recommendations[i], 90);
     
-    page.drawRectangle({ x: margin, y: yPosition - (historicalDates.length * 18 + 20), width: pageWidth, height: historicalDates.length * 18 + 20, borderColor: rgb(0, 0, 0), borderWidth: 1.5 });
-    
-    page.drawRectangle({ x: margin, y: yPosition - 20, width: pageWidth, height: 20, color: rgb(0.9, 0.9, 0.9) });
-    page.drawText("DATE", { x: margin + 10, y: yPosition - 15, size: 9, font: helveticaBold, color: rgb(0, 0, 0) });
-    page.drawText("ARTICLES", { x: margin + 100, y: yPosition - 15, size: 9, font: helveticaBold, color: rgb(0, 0, 0) });
-    page.drawText("SENTIMENT", { x: margin + 180, y: yPosition - 15, size: 9, font: helveticaBold, color: rgb(0, 0, 0) });
-    page.drawText("TOP TOPIC", { x: margin + 320, y: yPosition - 15, size: 9, font: helveticaBold, color: rgb(0, 0, 0) });
+    page.drawRectangle({
+      x: margin,
+      y: yPosition - (recLines.length * 12 + 15),
+      width: pageWidth,
+      height: recLines.length * 12 + 15,
+      color: rgb(0.95, 0.98, 1),
+      borderColor: rgb(0, 0.5, 0.9),
+      borderWidth: 1,
+    });
 
-    yPosition -= 38;
+    page.drawText(`${i + 1}.`, {
+      x: margin + 10,
+      y: yPosition - 12,
+      size: 9,
+      font: headingFontBold,
+      color: rgb(0, 0.5, 0.9),
+    });
+
+    let recY = yPosition - 12;
+    for (const line of recLines) {
+      page.drawText(line, {
+        x: margin + 25,
+        y: recY,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.2, 0.2, 0.2),
+      });
+      recY -= 12;
+    }
+
+    yPosition -= recLines.length * 12 + 25;
+  }
+
+  addFooter(page, pageNumber);
+
+  page = pdfDoc.addPage([595, 842]);
+  yPosition = addHeader(page, "HISTORICAL TRENDS & SUMMARY");
+  pageNumber++;
+
+  page.drawText("7-DAY TREND ANALYSIS", {
+    x: margin,
+    y: yPosition,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+  yPosition -= 20;
+
+  const historicalDates = Object.keys(historicalDigests).sort().slice(-7);
+  
+  if (historicalDates.length > 0) {
+    page.drawRectangle({
+      x: margin,
+      y: yPosition - (historicalDates.length * 22 + 30),
+      width: pageWidth,
+      height: historicalDates.length * 22 + 30,
+      borderColor: rgb(0.8, 0.8, 0.8),
+      borderWidth: 0.5,
+    });
+
+    page.drawRectangle({
+      x: margin,
+      y: yPosition - 25,
+      width: pageWidth,
+      height: 25,
+      color: rgb(0.1, 0.1, 0.1),
+    });
+
+    page.drawText("DATE", {
+      x: margin + 10,
+      y: yPosition - 17,
+      size: 8,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    });
+
+    page.drawText("ARTICLES", {
+      x: margin + 100,
+      y: yPosition - 17,
+      size: 8,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    });
+
+    page.drawText("SENTIMENT", {
+      x: margin + 200,
+      y: yPosition - 17,
+      size: 8,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    });
+
+    page.drawText("TOP TOPIC", {
+      x: margin + 320,
+      y: yPosition - 17,
+      size: 8,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    });
+
+    let histRowY = yPosition - 45;
     for (const date of historicalDates) {
       const digest = historicalDigests[date];
       const totalArticles = Object.values(digest.topicCounts).reduce((a, b) => a + b, 0);
       const topTopic = Object.entries(digest.topicCounts).sort((a, b) => b[1] - a[1])[0];
       const dominantSentiment = Object.entries(digest.sentimentCounts).sort((a, b) => b[1] - a[1])[0][0];
 
-      page.drawText(date, { x: margin + 10, y: yPosition, size: 9, font: helvetica, color: rgb(0, 0, 0) });
-      page.drawText(totalArticles.toString(), { x: margin + 100, y: yPosition, size: 9, font: helvetica, color: rgb(0, 0, 0) });
-      page.drawText(dominantSentiment, { x: margin + 180, y: yPosition, size: 9, font: helvetica, color: rgb(0, 0, 0) });
-      page.drawText(topTopic?.[0] || "N/A", { x: margin + 320, y: yPosition, size: 9, font: helvetica, color: rgb(0, 0, 0) });
-      yPosition -= 18;
+      const bgColor = histRowY % 44 === 0 ? rgb(0.98, 0.98, 0.98) : rgb(1, 1, 1);
+      page.drawRectangle({
+        x: margin,
+        y: histRowY - 20,
+        width: pageWidth,
+        height: 20,
+        color: bgColor,
+        borderWidth: 0,
+      });
+
+      page.drawText(date, {
+        x: margin + 10,
+        y: histRowY - 14,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.2, 0.2, 0.2),
+      });
+
+      page.drawText(totalArticles.toString(), {
+        x: margin + 100,
+        y: histRowY - 14,
+        size: 8,
+        font: contentFontBold,
+        color: rgb(0, 0.5, 0.9),
+      });
+
+      page.drawText(dominantSentiment, {
+        x: margin + 200,
+        y: histRowY - 14,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.2, 0.2, 0.2),
+      });
+
+      page.drawText((topTopic?.[0] || "N/A").substring(0, 25), {
+        x: margin + 320,
+        y: histRowY - 14,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.2, 0.2, 0.2),
+      });
+
+      histRowY -= 22;
     }
+
+    yPosition -= historicalDates.length * 22 + 50;
   }
 
-  yPosition -= 25;
-
-  page.drawText("TREND ALERTS", { x: margin, y: yPosition, size: 11, font: helveticaBold, color: rgb(0, 0, 0) });
-  yPosition -= 18;
-
-  const alerts = [
-    sentimentCounts.negative > sentimentCounts.positive ? "Negative sentiment exceeds positive" : "Balanced sentiment distribution",
-    Object.keys(topicCounts).length > 8 ? "High topic diversity detected" : "Focused topic coverage",
-    articles.length > 20 ? "Strong article volume" : "Limited article volume"
-  ];
-
-  for (const alert of alerts) {
-    const wrapped = wrapText(alert, 90);
-    for (const line of wrapped) {
-      page.drawText(line, { x: margin + 10, y: yPosition, size: 9, font: helvetica, color: rgb(0.2, 0.2, 0.2) });
-      yPosition -= 11;
-    }
-    yPosition -= 5;
-  }
-
-  addFooter(page, 6);
-
-  // PAGE 7: Detailed Statistics
-  page = pdfDoc.addPage([595, 842]);
-  yPosition = addHeader(page, "STATISTICS");
-
-  page.drawText("SENTIMENT BY TOPIC BREAKDOWN", { x: margin, y: yPosition, size: 14, font: timesBold, color: rgb(0, 0, 0) });
-  yPosition -= 25;
-
-  const topicTableHeight = 20 + (Array.from(topicSentiments.entries()).length * 28) + 10;
-  page.drawRectangle({ x: margin, y: yPosition - topicTableHeight, width: pageWidth, height: topicTableHeight, borderColor: rgb(0, 0, 0), borderWidth: 1.5 });
-  
-  page.drawRectangle({ x: margin, y: yPosition - 20, width: pageWidth, height: 20, color: rgb(0.9, 0.9, 0.9) });
-  page.drawText("TOPIC", { x: margin + 10, y: yPosition - 15, size: 9, font: helveticaBold, color: rgb(0, 0, 0) });
-  page.drawText("POSITIVE", { x: margin + 120, y: yPosition - 15, size: 9, font: helveticaBold, color: rgb(0, 0, 0) });
-  page.drawText("NEGATIVE", { x: margin + 200, y: yPosition - 15, size: 9, font: helveticaBold, color: rgb(0, 0, 0) });
-  page.drawText("NEUTRAL", { x: margin + 280, y: yPosition - 15, size: 9, font: helveticaBold, color: rgb(0, 0, 0) });
-  page.drawText("TOTAL", { x: margin + 350, y: yPosition - 15, size: 9, font: helveticaBold, color: rgb(0, 0, 0) });
-
-  let topicRowY = yPosition - 40;
-  for (const [topic, sentiments] of topicSentiments.entries()) {
-    const total = sentiments.positive + sentiments.negative + sentiments.neutral;
-    page.drawText(topic, { x: margin + 10, y: topicRowY, size: 9, font: helvetica, color: rgb(0, 0, 0) });
-    page.drawText(sentiments.positive.toString(), { x: margin + 120, y: topicRowY, size: 9, font: helvetica, color: rgb(0, 0.5, 0) });
-    page.drawText(sentiments.negative.toString(), { x: margin + 200, y: topicRowY, size: 9, font: helvetica, color: rgb(0.7, 0, 0) });
-    page.drawText(sentiments.neutral.toString(), { x: margin + 280, y: topicRowY, size: 9, font: helvetica, color: rgb(0.4, 0.4, 0.4) });
-    page.drawText(total.toString(), { x: margin + 350, y: topicRowY, size: 9, font: helveticaBold, color: rgb(0, 0, 0) });
-    topicRowY -= 28;
-  }
-
-  yPosition -= topicTableHeight + 25;
-
-  page.drawText("KEY PHRASES & PATTERNS", { x: margin, y: yPosition, size: 14, font: timesBold, color: rgb(0, 0, 0) });
-  yPosition -= 22;
-
-  const topPhrases = Array.from(keyPhrases.entries()).slice(0, 12);
-  const phraseBoxWidth = (pageWidth - 10) / 2;
-  let phraseX = margin;
-  let phraseY = yPosition;
-  let phraseCount = 0;
-
-  for (const [phrase, count] of topPhrases) {
-    const bgColor = phraseCount % 2 === 0 ? rgb(0.95, 0.95, 0.95) : rgb(1, 1, 1);
-    page.drawRectangle({ x: phraseX, y: phraseY - 16, width: phraseBoxWidth - 5, height: 16, color: bgColor, borderColor: rgb(0.7, 0.7, 0.7), borderWidth: 0.5 });
-    page.drawText(phrase, { x: phraseX + 8, y: phraseY - 11, size: 8, font: helvetica, color: rgb(0, 0, 0) });
-    page.drawText(`(${count})`, { x: phraseX + phraseBoxWidth - 35, y: phraseY - 11, size: 8, font: helveticaBold, color: rgb(0.4, 0.4, 0.4) });
-    
-    phraseX += phraseBoxWidth;
-    if (phraseCount % 2 === 1) {
-      phraseX = margin;
-      phraseY -= 20;
-    }
-    phraseCount++;
-  }
-
-  addFooter(page, 7);
-
-  // PAGE 8: Recommendations & Insights
-  page = pdfDoc.addPage([595, 842]);
-  yPosition = addHeader(page, "INSIGHTS");
-
-  page.drawText("RECOMMENDATIONS & ACTIONABLE INSIGHTS", { x: margin, y: yPosition, size: 14, font: timesBold, color: rgb(0, 0, 0) });
-  yPosition -= 25;
-
-  page.drawText("EXECUTIVE SUMMARY", { x: margin, y: yPosition, size: 11, font: helveticaBold, color: rgb(0, 0, 0) });
-  yPosition -= 16;
+  page.drawText("EXECUTIVE SUMMARY", {
+    x: margin,
+    y: yPosition,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(0.1, 0.1, 0.1),
+  });
+  yPosition -= 20;
 
   const totalArticles = articles.length;
   const avgReliability = calculateAverageReliability(articles);
   const dominantTopic = Object.entries(topicCounts).sort((a, b) => b[1] - a[1])[0];
   const dominantSentiment = Object.entries(sentimentCounts).sort((a, b) => b[1] - a[1])[0];
 
-  const summaryText = `Today's digest contains ${totalArticles} articles across ${Object.keys(topicCounts).length} topics. ` +
-    `The dominant topic is "${dominantTopic?.[0] || "N/A"}" with ${dominantTopic?.[1] || 0} articles (${((dominantTopic?.[1] || 0 / totalArticles) * 100).toFixed(1)}% of coverage). ` +
-    `Sentiment analysis reveals "${dominantSentiment?.[0] || "N/A"}" as the prevailing tone. ` +
-    `Source reliability averages ${(avgReliability * 100).toFixed(1)}%.`;
+  const summaryText = `Today's digest analyzed ${totalArticles} articles across ${Object.keys(topicCounts).length} distinct topics. The dominant coverage area is "${dominantTopic?.[0] || "N/A"}" representing ${dominantTopic?.[1] || 0} articles. Sentiment analysis indicates a "${dominantSentiment?.[0] || "N/A"}" overall tone with an average source reliability rating of ${(avgReliability * 100).toFixed(0)}%. The analysis covers ${Object.keys(sourceCount).length} primary news sources, providing comprehensive market coverage.`;
 
-  const summaryLines = wrapText(summaryText, 90);
+  const summaryLines = wrapText(summaryText, 95);
   for (const line of summaryLines) {
-    page.drawText(line, { x: margin + 10, y: yPosition, size: 9, font: timesFont, color: rgb(0.1, 0.1, 0.1) });
+    page.drawText(line, {
+      x: margin,
+      y: yPosition,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.2, 0.2, 0.2),
+    });
     yPosition -= 11;
   }
 
-  yPosition -= 15;
-
-  page.drawText("STRATEGIC RECOMMENDATIONS", { x: margin, y: yPosition, size: 11, font: helveticaBold, color: rgb(0, 0, 0) });
-  yPosition -= 18;
-
-  for (let i = 0; i < recommendations.length; i++) {
-    const recLines = wrapText(recommendations[i], 85);
-    for (const line of recLines) {
-      page.drawText(line, { x: margin + 10, y: yPosition, size: 9, font: helvetica, color: rgb(0.2, 0.2, 0.2) });
-      yPosition -= 11;
-    }
-    yPosition -= 6;
-  }
-
-  yPosition -= 8;
-
-  page.drawText("KEY METRICS SNAPSHOT", { x: margin, y: yPosition, size: 11, font: helveticaBold, color: rgb(0, 0, 0) });
-  yPosition -= 20;
-
-  const metricsBoxWidth = (pageWidth - 20) / 3;
-  const metricsY = yPosition;
-
-  page.drawRectangle({ x: margin, y: metricsY - 60, width: metricsBoxWidth - 5, height: 60, borderColor: rgb(0, 0, 0), borderWidth: 1 });
-  page.drawText("Positive", { x: margin + 8, y: metricsY - 18, size: 8, font: helveticaBold, color: rgb(0.4, 0.4, 0.4) });
-  page.drawText(sentimentCounts.positive.toString(), { x: margin + 8, y: metricsY - 42, size: 24, font: timesBold, color: rgb(0, 0.5, 0) });
-
-  page.drawRectangle({ x: margin + metricsBoxWidth + 5, y: metricsY - 60, width: metricsBoxWidth - 5, height: 60, borderColor: rgb(0, 0, 0), borderWidth: 1 });
-  page.drawText("Negative", { x: margin + metricsBoxWidth + 13, y: metricsY - 18, size: 8, font: helveticaBold, color: rgb(0.4, 0.4, 0.4) });
-  page.drawText(sentimentCounts.negative.toString(), { x: margin + metricsBoxWidth + 13, y: metricsY - 42, size: 24, font: timesBold, color: rgb(0.7, 0, 0) });
-
-  page.drawRectangle({ x: margin + 2 * metricsBoxWidth + 10, y: metricsY - 60, width: metricsBoxWidth - 5, height: 60, borderColor: rgb(0, 0, 0), borderWidth: 1 });
-  page.drawText("Reliability", { x: margin + 2 * metricsBoxWidth + 18, y: metricsY - 18, size: 8, font: helveticaBold, color: rgb(0.4, 0.4, 0.4) });
-  page.drawText(`${(avgReliability * 100).toFixed(0)}%`, { x: margin + 2 * metricsBoxWidth + 18, y: metricsY - 42, size: 24, font: timesBold, color: rgb(0, 0, 0.7) });
-
-  yPosition -= 80;
-
-  page.drawText("NEXT STEPS", { x: margin, y: yPosition, size: 11, font: helveticaBold, color: rgb(0, 0, 0) });
-  yPosition -= 18;
-
-  const nextSteps = [
-    "1. Monitor sentiment trends in coming days, especially if negative outlook persists",
-    "2. Cross-reference top articles with source reliability scores",
-    "3. Track emerging topics for shifts in coverage patterns",
-    "4. Review key phrases for potential story connections"
-  ];
-
-  for (const step of nextSteps) {
-    page.drawText(step, { x: margin + 10, y: yPosition, size: 9, font: helvetica, color: rgb(0.2, 0.2, 0.2) });
-    yPosition -= 12;
-  }
-
-  addFooter(page, 8);
+  addFooter(page, pageNumber);
 
   const pdfBytes = await pdfDoc.save();
   const pdfBuffer = Buffer.from(pdfBytes);

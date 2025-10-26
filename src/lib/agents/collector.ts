@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { load } from "cheerio";
-import fetch from "node-fetch";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { analyzeSentimentsBatch } from "./sentiment";
@@ -77,45 +76,50 @@ const FEEDS: Record<string, string[]> = {
     "https://www.thehindu.com/news/national/feeder/default.rss",
     "https://indianexpress.com/section/india/feed/",
     "https://timesofindia.indiatimes.com/rssfeedstopstories.cms",
-    "https://www.hindustantimes.com/feeds/rss/india-news/index.xml"
+    "https://www.hindustantimes.com/feeds/rss/india-news/index.xml",
+    "https://www.ndtv.com/india/rss",
+    "https://www.deccanherald.com/rss/india-news.xml"
   ]
 };
 
-const STATE_KEYWORDS: Record<string, string[]> = {
-  "ap": ["Andhra Pradesh", "AP", "Hyderabad", "Vijayawada"],
-  "ar": ["Arunachal Pradesh", "Itanagar"],
-  "as": ["Assam", "Guwahati", "Assamese"],
-  "br": ["Bihar", "Patna", "Bihari"],
-  "cg": ["Chhattisgarh", "Raipur"],
-  "ga": ["Goa", "Panaji"],
-  "gj": ["Gujarat", "Ahmedabad", "Gujarati"],
-  "hr": ["Haryana", "Chandigarh", "Gurugram"],
-  "hp": ["Himachal Pradesh", "Shimla"],
-  "jk": ["Jammu", "Kashmir", "Srinagar", "J&K"],
-  "jh": ["Jharkhand", "Ranchi"],
-  "ka": ["Karnataka", "Bangalore", "Bengaluru", "Kannada"],
-  "kl": ["Kerala", "Thiruvananthapuram", "Kochi", "Malayalam"],
-  "mp": ["Madhya Pradesh", "Bhopal"],
-  "mh": ["Maharashtra", "Mumbai", "Pune", "Marathi"],
-  "mn": ["Manipur", "Imphal"],
-  "ml": ["Meghalaya", "Shillong"],
-  "mz": ["Mizoram", "Aizawl"],
-  "nl": ["Nagaland", "Kohima"],
-  "od": ["Odisha", "Bhubaneswar", "Odia"],
-  "pb": ["Punjab", "Chandigarh", "Punjabi"],
-  "rj": ["Rajasthan", "Jaipur"],
-  "sk": ["Sikkim", "Gangtok"],
-  "tn": ["Tamil Nadu", "Chennai", "Tamil"],
-  "tg": ["Telangana", "Hyderabad", "Telugu"],
-  "tr": ["Tripura", "Agartala"],
-  "up": ["Uttar Pradesh", "Lucknow"],
-  "uk": ["Uttarakhand", "Dehradun"],
-  "wb": ["West Bengal", "Kolkata", "Bengali"],
-  "dl": ["Delhi", "New Delhi"],
+// Expanded state-specific keywords for better matching
+const STATE_CITY_MAPPING: Record<string, string[]> = {
+  "ap": ["Andhra Pradesh", "AP", "Hyderabad", "Vijayawada", "Visakhapatnam", "Warangal", "Tirupati", "Nellore"],
+  "ar": ["Arunachal Pradesh", "Itanagar", "Pasighat", "Tawang"],
+  "as": ["Assam", "Guwahati", "Assamese", "Dibrugarh", "Silchar", "Jorhat"],
+  "br": ["Bihar", "Patna", "Bihari", "Muzaffarpur", "Gaya", "Darbhanga", "Bhagalpur"],
+  "cg": ["Chhattisgarh", "Raipur", "Bilaspur", "Durg", "Bhilai"],
+  "ga": ["Goa", "Panaji", "Vasco", "Margao"],
+  "gj": ["Gujarat", "Ahmedabad", "Gujarati", "Rajkot", "Surat", "Vadodara", "Gandhinagar", "Anand", "Bhavnagar", "Junagadh", "Kutch", "Morbi"],
+  "hr": ["Haryana", "Chandigarh", "Gurugram", "Gurgaon", "Faridabad", "Hisar", "Rohtak", "Panipat"],
+  "hp": ["Himachal Pradesh", "Shimla", "Manali", "Dharamshala", "Solan", "Mandi"],
+  "jk": ["Jammu", "Kashmir", "Srinagar", "J&K", "JK", "Leh", "Ladakh", "Anantnag"],
+  "jh": ["Jharkhand", "Ranchi", "Jamshedpur", "Dhanbad", "Giridih", "Bokaro"],
+  "ka": ["Karnataka", "Bangalore", "Bengaluru", "Kannada", "Mysore", "Mangalore", "Hubli", "Belgaum"],
+  "kl": ["Kerala", "Thiruvananthapuram", "Kochi", "Malayalam", "Trivandrum", "Ernakulam", "Calicut"],
+  "mp": ["Madhya Pradesh", "Bhopal", "Indore", "Jabalpur", "Gwalior", "Ujjain"],
+  "mh": ["Maharashtra", "Mumbai", "Pune", "Marathi", "Nagpur", "Aurangabad", "Nashik", "Kolhapur"],
+  "mn": ["Manipur", "Imphal", "Ukhrul", "Churachandpur"],
+  "ml": ["Meghalaya", "Shillong", "Khasi"],
+  "mz": ["Mizoram", "Aizawl", "Lunglei"],
+  "nl": ["Nagaland", "Kohima", "Dimapur"],
+  "od": ["Odisha", "Bhubaneswar", "Odia", "Odisha", "Cuttack", "Rourkela", "Balasore"],
+  "pb": ["Punjab", "Chandigarh", "Punjabi", "Ludhiana", "Amritsar", "Jalandhar", "Patiala"],
+  "rj": ["Rajasthan", "Jaipur", "Jodhpur", "Udaipur", "Ajmer", "Kota", "Bikaner"],
+  "sk": ["Sikkim", "Gangtok", "Namchi"],
+  "tn": ["Tamil Nadu", "Chennai", "Tamil", "Madras", "Coimbatore", "Madurai", "Salem", "Trichy"],
+  "tg": ["Telangana", "Hyderabad", "Telugu", "Secunderabad", "Warangal", "Karimnagar"],
+  "tr": ["Tripura", "Agartala", "Tripuri"],
+  "up": ["Uttar Pradesh", "Lucknow", "Kanpur", "Varanasi", "Agra", "Meerut", "Ghaziabad", "Allahabad"],
+  "uk": ["Uttarakhand", "Dehradun", "Nainital", "Rishikesh", "Haridwar"],
+  "wb": ["West Bengal", "Kolkata", "Bengali", "Darjeeling", "Siliguri", "Asansol"],
+  "dl": ["Delhi", "New Delhi", "Delhi"],
   "ch": ["Chandigarh"],
-  "ld": ["Lakshadweep"],
-  "py": ["Puducherry", "Pondicherry"]
+  "ld": ["Lakshadweep", "Kavaratti"],
+  "py": ["Puducherry", "Pondicherry", "Yanam", "Mahe"]
 };
+
+// Removed old STATE_KEYWORDS - now using STATE_CITY_MAPPING instead
 
 async function fetchRssItems(feedUrl: string) {
   try {
@@ -156,6 +160,70 @@ function uniqueByLink(items: RSSItem[]): RSSItem[] {
     seen.add(key);
     return true;
   });
+}
+
+async function filterArticlesByStateWithAI(
+  articles: Array<{title: string; description: string; link: string | null; source: string | null; pubDate: string | null}>,
+  state: string,
+  stateNames: string[]
+): Promise<Array<{title: string; description: string; link: string | null; source: string | null; pubDate: string | null}>> {
+  if (!process.env.GOOGLE_API_KEY) {
+    console.warn("⚠️ GOOGLE_API_KEY not available for AI filtering");
+    return articles.slice(0, 15);
+  }
+
+  try {
+    const model = new ChatGoogleGenerativeAI({
+      model: "gemini-2.0-flash",
+      temperature: 0.2,
+      apiKey: process.env.GOOGLE_API_KEY,
+    });
+
+    const stateNames_str = stateNames.join(", ");
+    const articlesText = articles
+      .slice(0, 30)
+      .map((a, idx) => `${idx + 1}. Title: ${a.title}\nDescription: ${a.description?.substring(0, 200) || "N/A"}`)
+      .join("\n\n");
+
+    const promptContent = `You are a news relevance classifier. Given a state and news articles, identify which articles are relevant to that state.
+
+State: ${stateNames_str} (code: ${state})
+
+Return ONLY a JSON array of integers representing the indices (1-based) of articles relevant to this state. Consider articles relevant if they mention:
+- The state name or its cities
+- Local government/administration decisions
+- Regional events and news
+- Local businesses and industries
+- Regional culture and events
+
+Articles:
+${articlesText}
+
+Return ONLY a valid JSON array like [1, 3, 5] with no other text. If no articles are relevant, return empty array [].`;
+
+    const chain = model.pipe(new StringOutputParser());
+    const output = await chain.invoke([{ role: "user", content: promptContent }]);
+    
+    const cleanedOutput = output
+      .replace(/```json\n?/g, "")
+      .replace(/```\n?/g, "")
+      .trim();
+    
+    const arrayMatch = cleanedOutput.match(/\[\s*\d*(?:\s*,\s*\d+)*\s*\]/);
+    if (arrayMatch) {
+      const indices = JSON.parse(arrayMatch[0]) as number[];
+      const filtered = indices
+        .map(idx => articles[idx - 1])
+        .filter((a) => a !== undefined);
+      
+      console.log(`✅ AI filtering identified ${filtered.length} relevant articles for state: ${state}`);
+      return filtered.length > 0 ? filtered : articles.slice(0, 15);
+    }
+  } catch (err) {
+    console.warn(`⚠️ AI filtering failed for state ${state}:`, err instanceof Error ? err.message : "Unknown error");
+  }
+
+  return articles.slice(0, 15);
 }
 
 async function fetchWeatherData(location: string = "New York"): Promise<Weather | null> {
@@ -381,8 +449,8 @@ export async function collectDailyDigest(
     .slice(0, 50);
 
   // Filter articles by state if state is provided and topic is "state"
-  if (topic === "state" && state && STATE_KEYWORDS[state]) {
-    const stateKeywords = STATE_KEYWORDS[state];
+  if (topic === "state" && state && STATE_CITY_MAPPING[state]) {
+    const stateKeywords = STATE_CITY_MAPPING[state];
     const keywordRegex = new RegExp(stateKeywords.join("|"), "i");
     
     rawArticles = rawArticles.filter(article => 
@@ -391,21 +459,68 @@ export async function collectDailyDigest(
     
     console.log(`🔍 Filtered to ${rawArticles.length} articles for state: ${state}`);
     
-    // If no articles found for the state, fall back to unfiltered results
+    // If no articles found for the state, fetch more articles and retry with broader matching
     if (rawArticles.length === 0) {
-      console.warn(`⚠️ No articles found for state: ${state}. Using general national news instead.`);
-      rawArticles = uniqueByLink(rawGroups.flat())
+      console.warn(`⚠️ No articles found for state: ${state}. Fetching more articles and retrying...`);
+      
+      // Fetch more articles (up to 100) from national feeds to increase chances
+      const moreFeeds = FEEDS["national"];
+      const moreRawGroups = await Promise.all(moreFeeds.map((f) => fetchRssItems(f).catch(() => [])));
+      const moreArticles = uniqueByLink(moreRawGroups.flat())
         .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
-        .slice(0, 50);
+        .slice(0, 100);
+      
+      // Try filtering again with the expanded set
+      rawArticles = moreArticles.filter(article => 
+        keywordRegex.test(article.title) || keywordRegex.test(article.description)
+      );
+      
+      console.log(`🔍 After retry with more articles: ${rawArticles.length} articles found`);
+      
+      // If still no articles, use AI-based filtering to identify relevant articles
+      if (rawArticles.length === 0) {
+        console.warn(`⚠️ Still no articles found for state: ${state}. Using AI-based filtering...`);
+        const mappedArticles = moreArticles.map(a => ({
+          title: a.title,
+          description: a.description,
+          link: a.link || null,
+          source: a.source || null,
+          pubDate: a.pubDate || null
+        }));
+        
+        const aiFilteredArticles = await filterArticlesByStateWithAI(
+          mappedArticles,
+          state,
+          stateKeywords
+        );
+        
+        if (aiFilteredArticles.length > 0) {
+          rawArticles = aiFilteredArticles as RSSItem[];
+          console.log(`✅ AI filtering identified ${rawArticles.length} articles for state: ${state}`);
+        } else {
+          // Final fallback: use top 15 national articles
+          console.warn(`⚠️ AI filtering found no articles. Using top national articles as fallback.`);
+          rawArticles = moreArticles.slice(0, 15);
+        }
+      }
     }
   }
+
+  const escapeForPrompt = (text: string | null | undefined): string => {
+    if (!text) return "";
+    return text
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, " ")
+      .replace(/\r/g, " ")
+      .replace(/\t/g, " ")
+      .trim();
+  };
 
   const articlesText = rawArticles
     .map(
       (a, idx) =>
-        `${idx + 1}. Title: ${a.title}\nLink: ${a.link ?? ""}\nSource: ${a.source ?? ""}\nPubDate: ${
-          a.pubDate ?? ""
-        }\nDescription: ${a.description}`
+        `${idx + 1}. Title: ${escapeForPrompt(a.title)}\nLink: ${escapeForPrompt(a.link)}\nSource: ${escapeForPrompt(a.source)}\nPubDate: ${escapeForPrompt(a.pubDate)}\nDescription: ${escapeForPrompt(a.description)}`
     )
     .join("\n\n");
 
@@ -465,9 +580,50 @@ ${articlesText}`;
     .replace(/```\n?/g, "")
     .trim();
   
-  const jsonMatch = cleanedOutput.match(/\{\s*"[^"]*"[\s\S]*?\}\s*$/);
-  if (jsonMatch) {
-    cleanedOutput = jsonMatch[0];
+  // Extract JSON object from the output more carefully
+  let jsonMatch;
+  let jsonStart = cleanedOutput.indexOf('{');
+  
+  if (jsonStart >= 0) {
+    // Find the last closing brace
+    let braceCount = 0;
+    let inString = false;
+    let escapeNext = false;
+    let jsonEnd = -1;
+    
+    for (let i = jsonStart; i < cleanedOutput.length; i++) {
+      const char = cleanedOutput[i];
+      
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+      
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+      
+      if (char === '"' && !escapeNext) {
+        inString = !inString;
+        continue;
+      }
+      
+      if (!inString) {
+        if (char === '{') braceCount++;
+        else if (char === '}') {
+          braceCount--;
+          if (braceCount === 0) {
+            jsonEnd = i + 1;
+            break;
+          }
+        }
+      }
+    }
+    
+    if (jsonEnd > jsonStart) {
+      cleanedOutput = cleanedOutput.substring(jsonStart, jsonEnd);
+    }
   }
 
   let parsedJson;
@@ -475,78 +631,53 @@ ${articlesText}`;
     parsedJson = JSON.parse(cleanedOutput);
   } catch (initialError) {
     try {
+      // More aggressive JSON repair
       let fixedOutput = cleanedOutput;
       
-      // Remove actual newlines and carriage returns from the entire JSON
-      fixedOutput = fixedOutput.replace(/\r\n/g, '\\n').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+      // Replace unescaped newlines and carriage returns inside the string
+      // This is complex, so we use a different approach: parse character by character
+      let repaired = '';
+      let inString = false;
+      let escapeNext = false;
       
-      // Fix improperly escaped sequences
-      // Remove backslashes before characters that shouldn't be escaped
-      fixedOutput = fixedOutput.replace(/\\([^"\\/bfnrtu])/g, (match, char) => {
-        // Keep valid escape sequences, remove invalid ones
-        if (char === 'x' || char === 'u') return match; // Could be valid hex/unicode
-        return char; // Remove the backslash for invalid escapes
-      });
-      
-      // Fix invalid \u sequences (must have exactly 4 hex digits)
-      fixedOutput = fixedOutput.replace(/\\u([0-9a-fA-F]{0,3})(?![0-9a-fA-F])/g, (match, hex) => {
-        // Replace with space or remove the invalid unicode escape
-        return ' ';
-      });
-      
-      // Replace single quotes with double quotes only for field values
-      fixedOutput = fixedOutput.replace(/:\s*'([^']*)'/g, ': "$1"');
-      
-      // Remove trailing commas before closing brackets
-      fixedOutput = fixedOutput.replace(/,(\s*[}\]])/g, '$1');
-      
-      // Escape any unescaped quotes within string values
-      fixedOutput = fixedOutput.replace(/"([^"\\]*)":/g, (match) => {
-        // This is a key, leave it alone
-        return match;
-      });
-      
-      // Final cleanup: ensure all quotes in values are escaped
-      const sanitizeStringValues = (json: string): string => {
-        let result = '';
-        let inString = false;
-        let escapeNext = false;
+      for (let i = 0; i < fixedOutput.length; i++) {
+        const char = fixedOutput[i];
+        const nextChar = fixedOutput[i + 1];
         
-        for (let i = 0; i < json.length; i++) {
-          const char = json[i];
-          
-          if (escapeNext) {
-            result += char;
-            escapeNext = false;
-            continue;
-          }
-          
-          if (char === '\\') {
-            result += char;
-            escapeNext = true;
-            continue;
-          }
-          
-          if (char === '"') {
-            inString = !inString;
-            result += char;
-            continue;
-          }
-          
-          if (inString && char === '"') {
-            result += '\\"';
-            continue;
-          }
-          
-          result += char;
+        if (escapeNext) {
+          repaired += char;
+          escapeNext = false;
+          continue;
         }
         
-        return result;
-      };
+        if (char === '\\') {
+          repaired += char;
+          escapeNext = true;
+          continue;
+        }
+        
+        if (char === '"') {
+          inString = !inString;
+          repaired += char;
+          continue;
+        }
+        
+        // Inside strings, fix problematic characters
+        if (inString) {
+          if (char === '\n' || char === '\r' || char === '\t') {
+            // Replace with space
+            repaired += ' ';
+            continue;
+          }
+        }
+        
+        repaired += char;
+      }
       
-      fixedOutput = sanitizeStringValues(fixedOutput);
+      // Remove any trailing commas before brackets
+      repaired = repaired.replace(/,\s*([}\]])/g, '$1');
       
-      parsedJson = JSON.parse(fixedOutput);
+      parsedJson = JSON.parse(repaired);
     } catch (fixError) {
       console.error('JSON parse error - attempting fallback:', initialError);
       

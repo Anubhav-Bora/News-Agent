@@ -6,8 +6,10 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const topic = url.searchParams.get("topic") || "all";
     const language = url.searchParams.get("language") || "en";
+    const location = url.searchParams.get("location");
+    const state = url.searchParams.get("state");
 
-    const digest = await collectDailyDigest(topic, language);
+    const digest = await collectDailyDigest(topic, language, location || undefined, state || undefined);
 
     return NextResponse.json(digest, { status: 200 });
   } catch (err: unknown) {

@@ -24,6 +24,8 @@ export default function AppPage() {
   const [includeSentiment, setIncludeSentiment] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [currentStep, setCurrentStep] = useState("")
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -107,8 +109,31 @@ export default function AppPage() {
     }
 
     setIsLoading(true)
+    setProgress(0)
+    setCurrentStep("Collecting articles...")
+    
     try {
-      const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
+      const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
+      
+      const steps = [
+        { name: "Collecting articles...", duration: 2000 },
+        { name: "Translating content...", duration: 2000 },
+        { name: "Generating audio...", duration: 2000 },
+        { name: "Analyzing sentiment...", duration: 1500 },
+        { name: "Creating PDF...", duration: 1500 },
+        { name: "Sending email...", duration: 1000 }
+      ]
+      
+      let currentProgress = 0
+      for (const step of steps) {
+        setCurrentStep(step.name)
+        const startTime = Date.now()
+        while (Date.now() - startTime < step.duration && currentProgress < 95) {
+          currentProgress = Math.min(95, currentProgress + Math.random() * 8)
+          setProgress(currentProgress)
+          await new Promise(resolve => setTimeout(resolve, 50))
+        }
+      }
       
       const response = await fetch("/api/run-pipeline", {
         method: "POST",
@@ -129,6 +154,9 @@ export default function AppPage() {
       const data = await response.json()
 
       if (response.ok) {
+        setProgress(100)
+        setCurrentStep("Complete! ✓")
+        await new Promise(resolve => setTimeout(resolve, 500))
         setShowSuccess(true)
         setTimeout(() => setShowSuccess(false), 5000)
         setEmail("")
@@ -143,6 +171,8 @@ export default function AppPage() {
       alert("An error occurred while generating your digest")
     } finally {
       setIsLoading(false)
+      setProgress(0)
+      setCurrentStep("")
     }
   }
 
@@ -332,6 +362,34 @@ export default function AppPage() {
                     "Generate Digest"
                   )}
                 </Button>
+
+                {/* Progress Bar */}
+                {isLoading && (
+                  <div className="space-y-3 p-4 rounded-lg bg-gradient-to-r from-primary/10 to-accent/10 border border-primary/20">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-medium text-foreground">{currentStep}</p>
+                      <span className="text-xs font-semibold text-primary">{Math.round(progress)}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-secondary/20 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-primary via-secondary to-accent rounded-full transition-all duration-300 ease-out shadow-lg shadow-primary/50"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    <div className="flex gap-1 mt-3">
+                      {[...Array(6)].map((_, i) => (
+                        <div 
+                          key={i}
+                          className={`flex-1 h-1 rounded-full transition-all ${
+                            (progress / 100) * 6 > i 
+                              ? 'bg-primary' 
+                              : 'bg-muted'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
               </form>
 
               {/* Success Message */}
@@ -404,6 +462,44 @@ export default function AppPage() {
                     <li>✓ Topic extraction</li>
                     <li>✓ Custom categories</li>
                   </ul>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 bg-gradient-to-br from-purple-500/10 via-pink-500/10 to-orange-500/10 border-2 border-dashed border-purple-300/30 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-purple-400/20 to-pink-400/20 rounded-full -mr-10 -mt-10 blur-xl" />
+              <div className="absolute bottom-0 left-0 w-16 h-16 bg-gradient-to-tr from-orange-400/20 to-yellow-400/20 rounded-full -ml-8 -mb-8 blur-xl" />
+              
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-sm bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                    🎨 Coming Soon
+                  </h3>
+                  <span className="text-xl animate-bounce">✨</span>
+                </div>
+                
+                <p className="text-sm font-semibold text-foreground mb-3">PDF in Your Own Language</p>
+                <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                  Soon you'll receive PDF reports fully formatted in Hindi, Gujarati, Tamil, Telugu, and 20+ other Indian languages. Beautifully designed, fully readable.
+                </p>
+                
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                    <span>Native language fonts</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-1.5 h-1.5 rounded-full bg-pink-500" />
+                    <span>Professional formatting</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                    <span>Full content support</span>
+                  </div>
+                </div>
+                
+                <div className="pt-3 border-t border-purple-200/30">
+                  <p className="text-xs text-purple-600 font-medium">📧 We'll notify you when it's ready</p>
                 </div>
               </div>
             </Card>
