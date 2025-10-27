@@ -12,6 +12,7 @@ export const NewsItemSchema = z.object({
   pubDate: z.string().nullable(),
   sentiment: z.enum(["positive", "negative", "neutral"]),
   sentimentScore: z.number().min(0).max(1),
+  category: z.string().optional(), // Category for organizing in PDF
 });
 export type NewsItem = z.infer<typeof NewsItemSchema>;
 
@@ -352,16 +353,18 @@ export async function collectDailyDigest(
     console.log(`📰 Collecting digest for topic: all (equal distribution from all categories)`);
     
     const categories = ["tech", "sports", "national", "international"];
+    const categoryArticles: Record<string, NewsItem[]> = {};
     const allItems: NewsItem[] = [];
     
+    // Collect from each category
     for (const category of categories) {
       const feeds = FEEDS[category] ?? [];
       const rawGroups = await Promise.all(feeds.map((f) => fetchRssItems(f).catch(() => [])));
-      const categoryArticles = uniqueByLink(rawGroups.flat())
+      const categoryNews = uniqueByLink(rawGroups.flat())
         .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
-        .slice(0, 4);
+        .slice(0, 5); // Get 5 per category for diversity
       
-      const categoryText = categoryArticles
+      const categoryText = categoryNews
         .map((a, idx) => 
           `${idx + 1}. Title: ${a.title}\nLink: ${a.link ?? ""}\nSource: ${a.source ?? ""}\nPubDate: ${a.pubDate ?? ""}\nDescription: ${a.description}`
         )
@@ -369,27 +372,36 @@ export async function collectDailyDigest(
 
       if (categoryText.trim().length > 0) {
         const categoryDigest = await collectFromCategory(categoryText, category, language);
-        allItems.push(...categoryDigest);
+        const itemsWithCategory = categoryDigest.map(item => ({
+          ...item,
+          category // Add category info
+        }));
+        categoryArticles[category] = itemsWithCategory;
+        allItems.push(...itemsWithCategory);
       }
     }
     
+    // Ensure minimum 10 articles
     if (allItems.length < 10) {
-      console.warn(`⚠️ Only collected ${allItems.length} articles. Fetching additional from "all" feeds...`);
+      console.warn(`⚠️ Only collected ${allItems.length} articles. Fetching additional...`);
       const feeds = FEEDS["all"];
       const rawGroups = await Promise.all(feeds.map((f) => fetchRssItems(f).catch(() => [])));
       const additionalArticles = uniqueByLink(rawGroups.flat())
         .sort((a, b) => (b.pubDate ? new Date(b.pubDate).getTime() : 0) - (a.pubDate ? new Date(a.pubDate).getTime() : 0))
-        .slice(0, 10 - allItems.length);
+        .slice(0, Math.max(15 - allItems.length, 5)); // Get at least 5 more, up to 15 total
       
-      allItems.push(...additionalArticles.map(a => ({
+      const additionalProcessed = additionalArticles.map(a => ({
         title: a.title,
         link: a.link || null,
         summary: a.description?.substring(0, 150) || a.title,
         source: a.source || null,
         pubDate: a.pubDate || null,
         sentiment: "neutral" as const,
-        sentimentScore: 0.5
-      })));
+        sentimentScore: 0.5,
+        category: "general" // Mark as general for articles from fallback
+      }));
+      
+      allItems.push(...additionalProcessed);
     }
 
     console.log(`🔍 Analyzing sentiments for ${allItems.length} articles...`);
@@ -400,7 +412,7 @@ export async function collectDailyDigest(
       }))
     );
 
-    const itemsWithSentiment = allItems.map((item: NewsItem, idx: number) => {
+    const itemsWithSentiment = allItems.map((item: NewsItem & { category?: string }, idx: number) => {
       const sentimentData = sentimentResults[idx] || { sentiment: "neutral", score: 0.5 };
       return {
         ...item,
@@ -418,7 +430,7 @@ export async function collectDailyDigest(
       }
     }
 
-    console.log(`✅ Digest collected with ${itemsWithSentiment.length} articles (${categories.length} categories equally distributed)`);
+    console.log(`✅ Digest collected with ${itemsWithSentiment.length} articles (minimum 10 guaranteed)`);
 
     return {
       date: new Date().toISOString().split("T")[0],

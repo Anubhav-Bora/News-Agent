@@ -294,6 +294,7 @@ export const createNewsPipeline = () => {
           pubDate: item.pubDate || new Date().toISOString(),
           keywords: [],
           reliability: 0.8,
+          category: (item as any).category, // Include category if available
         }));
 
         const pdfUrl = await generateDigestPDF(
@@ -301,7 +302,8 @@ export const createNewsPipeline = () => {
           {},
           context.input.userId,
           "en",
-          context.digest.weather
+          context.digest.weather,
+          context.input.newsType // Pass newsType to know if we should show categories
         );
 
         logger.info(`PDF generated`);
