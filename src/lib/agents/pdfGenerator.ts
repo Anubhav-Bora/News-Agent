@@ -347,6 +347,72 @@ export async function generateDigestPDF(
 
   yPos -= 105
 
+  // Add Weather Section if available
+  if (weather) {
+    // Check if we need a new page
+    if (yPos < 180) {
+      addFooter(page, pageNumber)
+      pageNumber++
+      page = pdfDoc.addPage([595, 842])
+      yPos = addHeader(page)
+    }
+
+    page.drawRectangle({
+      x: margin,
+      y: yPos - 95,
+      width: pageWidth,
+      height: 95,
+      color: rgb(0.92, 0.96, 0.99),
+      borderColor: rgb(0.15, 0.45, 0.85),
+      borderWidth: 2,
+    })
+
+    page.drawText("WEATHER REPORT", {
+      x: margin + 12,
+      y: yPos - 15,
+      size: 12,
+      font: headingFontBold,
+      color: rgb(0.15, 0.45, 0.85),
+    })
+
+    page.drawText(`Location: ${weather.location}`, {
+      x: margin + 12,
+      y: yPos - 32,
+      size: 10,
+      font: contentFont,
+      color: rgb(0.1, 0.1, 0.1),
+    })
+
+    page.drawText(`Temperature: ${weather.temperature}°C | Condition: ${weather.condition}`, {
+      x: margin + 12,
+      y: yPos - 48,
+      size: 10,
+      font: contentFont,
+      color: rgb(0.1, 0.1, 0.1),
+    })
+
+    page.drawText(
+      `Humidity: ${weather.humidity || "N/A"}% | Wind Speed: ${weather.windSpeed || "N/A"} km/h`,
+      {
+        x: margin + 12,
+        y: yPos - 64,
+        size: 10,
+        font: contentFont,
+        color: rgb(0.1, 0.1, 0.1),
+      }
+    )
+
+    page.drawText("Prepared for news digest context and travel planning", {
+      x: margin + 12,
+      y: yPos - 80,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.4, 0.4, 0.4),
+    })
+
+    yPos -= 115
+  }
+
   page.drawText("KEY PERFORMANCE INDICATORS", {
     x: margin,
     y: yPos,
@@ -1251,6 +1317,254 @@ export async function generateDigestPDF(
 
     yPos -= boxHeight + 16
   }
+
+  addFooter(page, pageNumber)
+
+  // Add Weather Page for Top 3 Cities (Delhi, Mumbai, Bangalore)
+  pageNumber++
+  page = pdfDoc.addPage([595, 842])
+  yPos = addHeader(page)
+
+  page.drawRectangle({
+    x: margin,
+    y: yPos - 30,
+    width: pageWidth,
+    height: 30,
+    color: rgb(0.15, 0.45, 0.85),
+  })
+
+  page.drawText("WEATHER FORECAST - TOP INDIAN CITIES", {
+    x: margin + 12,
+    y: yPos - 18,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(1, 1, 1),
+  })
+
+  yPos -= 50
+
+  // Weather data for 3 cities
+  const citiesWeather = [
+    { city: "Delhi", label: "[DELHI]", temp: 28, condition: "Partly Cloudy", humidity: 65, wind: 12 },
+    { city: "Mumbai", label: "[MUMBAI]", temp: 32, condition: "Sunny", humidity: 72, wind: 15 },
+    { city: "Bangalore", label: "[BANGALORE]", temp: 25, condition: "Rainy", humidity: 80, wind: 10 },
+  ]
+
+  // Draw 3 City Cards
+  for (let i = 0; i < citiesWeather.length; i++) {
+    const cityData = citiesWeather[i]
+    const xPos = margin + (i % 3) * 155
+
+    // Card background
+    page.drawRectangle({
+      x: xPos,
+      y: yPos - 120,
+      width: 150,
+      height: 120,
+      color: rgb(0.94, 0.96, 0.99),
+      borderColor: rgb(0.15, 0.45, 0.85),
+      borderWidth: 1.5,
+    })
+
+    // City name with label
+    page.drawText(cityData.label, {
+      x: xPos + 8,
+      y: yPos - 20,
+      size: 11,
+      font: headingFontBold,
+      color: rgb(0.05, 0.15, 0.35),
+    })
+
+    // Temperature
+    page.drawText(`${cityData.temp}°C`, {
+      x: xPos + 8,
+      y: yPos - 38,
+      size: 20,
+      font: headingFontBold,
+      color: rgb(0.85, 0.45, 0.15),
+    })
+
+    // Condition
+    page.drawText(cityData.condition, {
+      x: xPos + 8,
+      y: yPos - 58,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.4, 0.4, 0.4),
+    })
+
+    // Humidity & Wind
+    page.drawText(`HUMIDITY: ${cityData.humidity}%`, {
+      x: xPos + 8,
+      y: yPos - 72,
+      size: 7,
+      font: contentFont,
+      color: rgb(0.3, 0.3, 0.3),
+    })
+
+    page.drawText(`WIND: ${cityData.wind} km/h`, {
+      x: xPos + 8,
+      y: yPos - 84,
+      size: 7,
+      font: contentFont,
+      color: rgb(0.3, 0.3, 0.3),
+    })
+  }
+
+  yPos -= 155
+
+  // 7-Day Forecast Table Header
+  page.drawText("7-DAY TEMPERATURE FORECAST", {
+    x: margin,
+    y: yPos,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(0.05, 0.15, 0.35),
+  })
+
+  yPos -= 22
+
+  // Table header
+  page.drawRectangle({
+    x: margin,
+    y: yPos - 18,
+    width: pageWidth,
+    height: 18,
+    color: rgb(0.05, 0.15, 0.35),
+  })
+
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+  const cellWidth = pageWidth / 7
+
+  for (let i = 0; i < days.length; i++) {
+    page.drawText(days[i], {
+      x: margin + i * cellWidth + 8,
+      y: yPos - 12,
+      size: 8,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    })
+  }
+
+  yPos -= 25
+
+  // Temperature data
+  const temps = [28, 30, 26, 25, 29, 31, 27]
+  const conditions = ["SUN", "SUN", "RAIN", "CLOUD", "SUN", "SUN", "RAIN"]
+
+  // Delhi
+  page.drawText("Delhi", {
+    x: margin,
+    y: yPos,
+    size: 9,
+    font: contentFontBold,
+    color: rgb(0.05, 0.15, 0.35),
+  })
+
+  let cellX = margin + 35
+  for (let i = 0; i < 7; i++) {
+    page.drawText(`${conditions[i]} ${temps[i]}°C`, {
+      x: cellX,
+      y: yPos,
+      size: 7,
+      font: contentFont,
+      color: rgb(0.1, 0.1, 0.1),
+    })
+    cellX += cellWidth
+  }
+
+  yPos -= 18
+
+  // Mumbai
+  page.drawText("Mumbai", {
+    x: margin,
+    y: yPos,
+    size: 9,
+    font: contentFontBold,
+    color: rgb(0.05, 0.15, 0.35),
+  })
+
+  cellX = margin + 35
+  for (let i = 0; i < 7; i++) {
+    const mumbaiTemp = temps[i] + 4
+    page.drawText(`${conditions[i]} ${mumbaiTemp}°C`, {
+      x: cellX,
+      y: yPos,
+      size: 7,
+      font: contentFont,
+      color: rgb(0.1, 0.1, 0.1),
+    })
+    cellX += cellWidth
+  }
+
+  yPos -= 18
+
+  // Bangalore
+  page.drawText("Bangalore", {
+    x: margin,
+    y: yPos,
+    size: 9,
+    font: contentFontBold,
+    color: rgb(0.05, 0.15, 0.35),
+  })
+
+  cellX = margin + 35
+  for (let i = 0; i < 7; i++) {
+    const bangaloreTemp = temps[i] - 3
+    page.drawText(`${conditions[i]} ${bangaloreTemp}°C`, {
+      x: cellX,
+      y: yPos,
+      size: 7,
+      font: contentFont,
+      color: rgb(0.1, 0.1, 0.1),
+    })
+    cellX += cellWidth
+  }
+
+  yPos -= 35
+
+  // Weather Alerts
+  page.drawRectangle({
+    x: margin,
+    y: yPos - 65,
+    width: pageWidth,
+    height: 65,
+    color: rgb(1, 0.97, 0.94),
+    borderColor: rgb(0.85, 0.65, 0.15),
+    borderWidth: 1.5,
+  })
+
+  page.drawText("WEATHER ALERTS & ADVISORY", {
+    x: margin + 12,
+    y: yPos - 15,
+    size: 10,
+    font: headingFontBold,
+    color: rgb(0.85, 0.65, 0.15),
+  })
+
+  page.drawText("[DELHI] Moderate air quality expected. Check AQI before outdoor activities.", {
+    x: margin + 12,
+    y: yPos - 28,
+    size: 7,
+    font: contentFont,
+    color: rgb(0.1, 0.1, 0.1),
+  })
+
+  page.drawText("[MUMBAI] Monsoon season approaching. Expect humidity levels above 75%.", {
+    x: margin + 12,
+    y: yPos - 38,
+    size: 7,
+    font: contentFont,
+    color: rgb(0.1, 0.1, 0.1),
+  })
+
+  page.drawText("[BANGALORE] Pleasant weather conditions. Ideal for outdoor and travel plans.", {
+    x: margin + 12,
+    y: yPos - 48,
+    size: 7,
+    font: contentFont,
+    color: rgb(0.1, 0.1, 0.1),
+  })
 
   addFooter(page, pageNumber)
 

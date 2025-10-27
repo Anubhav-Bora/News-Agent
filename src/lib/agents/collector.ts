@@ -12,7 +12,7 @@ export const NewsItemSchema = z.object({
   pubDate: z.string().nullable(),
   sentiment: z.enum(["positive", "negative", "neutral"]),
   sentimentScore: z.number().min(0).max(1),
-  category: z.string().optional(), // Category for organizing in PDF
+  category: z.string().optional(), 
 });
 export type NewsItem = z.infer<typeof NewsItemSchema>;
 
@@ -279,35 +279,34 @@ async function collectFromCategory(articlesText: string, category: string, langu
     apiKey: process.env.GOOGLE_API_KEY,
   });
 
-  const promptContent = `You are a precise multilingual news curator. IMPORTANT: Return ONLY valid JSON, no markdown, no code blocks, no extra text.
+  const promptContent = `You are a JSON-strict news curator. CRITICAL: You MUST return ONLY a valid JSON array, nothing else.
 
-Today's date is ${new Date().toISOString().split("T")[0]}. 
+Date: ${new Date().toISOString().split("T")[0]}
 Category: ${category}
 Language: ${language}
 
-From the articles below, select 3-4 most important and recent headlines.
-For each article, STRICTLY provide these fields:
-- title: brief headline string in ${language}
-- link: original URL string or null
-- summary: 100-150 word summary string in ${language}, WITHOUT newlines, with special characters properly escaped
-- source: news source name string or null  
-- pubDate: publication date string or null
+TASK: Extract 3-4 best articles from the text below. Return ONLY valid JSON array, no markdown, no explanation.
 
-CRITICAL JSON FORMATTING RULES:
-1. Use ONLY double quotes for all strings
-2. Escape ALL quotes inside strings with backslash: \"
-3. Escape ALL newlines as \\n (not actual line breaks)
-4. Escape ALL backslashes as \\\\
-5. NO newlines inside any string values - convert to spaces
-6. Remove special Unicode characters - use ASCII equivalents or transliterate
-7. All numbers without quotes, booleans without quotes
-8. NO trailing commas before ] or }
-9. Return ONLY the JSON array, nothing else
+REQUIRED FIELDS for each article:
+- title (string): Article headline
+- link (string or null): URL
+- summary (string): 100-150 chars, NO newlines, NO special unicode
+- source (string or null): News outlet
+- pubDate (string or null): Publication date
 
-Valid JSON example format:
-[{"title":"Example Title","link":null,"summary":"Example summary text without newlines or special chars.","source":"Example Source","pubDate":null}]
+ESSENTIAL JSON RULES:
+1. Return ONLY JSON array format like this: [{"title":"","link":null,...}]
+2. Use ONLY double quotes around strings
+3. Escape quotes inside strings as \"
+4. Replace ALL newlines with spaces (no \\n)
+5. Remove ALL unicode/emoji characters
+6. NO trailing commas
+7. NO markdown code blocks
+8. NO extra text outside JSON
 
-Raw Articles to Process:
+MUST VALIDATE: Ensure returned text starts with [ and ends with ] and is valid JSON.
+
+Raw Articles:
 ${articlesText}`;
 
   const chain = model.pipe(new StringOutputParser());
@@ -318,6 +317,7 @@ ${articlesText}`;
     .replace(/```\n?/g, "")
     .trim();
   
+  // Try to extract JSON array
   const jsonMatch = cleanedOutput.match(/\[\s*\{[\s\S]*?\}\s*\]/);
   if (jsonMatch) {
     cleanedOutput = jsonMatch[0];
@@ -337,9 +337,44 @@ ${articlesText}`;
       sentiment: "neutral" as const,
       sentimentScore: 0.5
     }));
-  } catch {
-    console.warn(`⚠️ Failed to parse category ${category} articles`);
-    return [];
+  } catch (parseError) {
+    console.warn(`⚠️ Failed to parse category ${category} articles. Attempting JSON repair...`);
+    console.warn(`Original output length: ${output.length} chars, first 150 chars: ${output.substring(0, 150)}`);
+    
+    try {
+      // Attempt aggressive JSON repair
+      let repaired = cleanedOutput;
+      
+      // Fix common issues
+      repaired = repaired.replace(/\\'/g, "'"); // Fix escaped single quotes
+      repaired = repaired.replace(/\\\//g, "/"); // Fix escaped forward slashes
+      repaired = repaired.replace(/\\([^"\\\/bfnrtu])/g, "$1"); // Fix invalid escapes
+      
+      // Remove trailing commas
+      repaired = repaired.replace(/,\s*([}\]])/g, "$1");
+      
+      // Parse and verify
+      const items = JSON.parse(repaired) as Array<{
+        title: string;
+        link: string | null;
+        summary: string;
+        source: string | null;
+        pubDate: string | null;
+      }>;
+      
+      console.log(`✅ JSON repair successful for category ${category}, recovered ${items.length} articles`);
+      
+      return items.map(item => ({
+        ...item,
+        sentiment: "neutral" as const,
+        sentimentScore: 0.5
+      }));
+    } catch (repairError) {
+      console.warn(`⚠️ JSON repair failed for category ${category}. Using fallback to fetch more articles.`);
+      
+      // Return empty array - will trigger fallback collection
+      return [];
+    }
   }
 }
 
