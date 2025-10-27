@@ -1,12 +1,6 @@
 ﻿import { PDFDocument, PDFPage, rgb, StandardFonts } from "pdf-lib";
 import dayjs from "dayjs";
 import { uploadPDFToSupabase, savePDFMetadata } from "../storage";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser } from "@langchain/core/output_parsers";
-
-const fontCache = new Map<string, { buffer: ArrayBuffer; timestamp: number }>();
-const CACHE_DURATION_MS = 25 * 60 * 60 * 1000;
 
 interface Article {
   title: string;
@@ -61,90 +55,6 @@ const languageMap: Record<string, string> = {
   "pa": "Punjabi",
   "punjabi": "Punjabi",
 };
-
-async function loadCustomFont(fontUrl: string): Promise<ArrayBuffer> {
-  const now = Date.now();
-  const cached = fontCache.get(fontUrl);
-  
-  if (cached && (now - cached.timestamp) < CACHE_DURATION_MS) {
-    return cached.buffer;
-  }
-  
-  try {
-    const response = await fetch(fontUrl);
-    if (!response.ok) throw new Error(`Failed to load font: ${fontUrl}`);
-    const buffer = await response.arrayBuffer();
-    
-    fontCache.set(fontUrl, { buffer, timestamp: now });
-    return buffer;
-  } catch (err) {
-    throw err;
-  }
-}
-
-async function translateArticles(articles: Article[], targetLanguage: string): Promise<Article[]> {
-  if (targetLanguage.toLowerCase() === "en" || targetLanguage.toLowerCase() === "english") {
-    return articles;
-  }
-
-  if (!process.env.GOOGLE_API_KEY) {
-    return articles;
-  }
-
-  try {
-    const languageName = languageMap[targetLanguage.toLowerCase()] || targetLanguage;
-    
-    const model = new ChatGoogleGenerativeAI({
-      model: "gemini-2.0-flash",
-      temperature: 0.3,
-      apiKey: process.env.GOOGLE_API_KEY,
-    });
-
-    const translatedArticles: Article[] = [];
-
-    for (const article of articles) {
-      try {
-        const promptTemplate = ChatPromptTemplate.fromTemplate(
-          `Translate the following news article to ${languageName}. Keep the meaning intact and maintain professional tone.
-
-Title: {title}
-Summary: {summary}
-
-Return ONLY the translation in the format:
-TITLE: [translated title]
-SUMMARY: [translated summary]
-
-Do NOT include any other text.`
-        );
-
-        const chain = promptTemplate.pipe(model).pipe(new StringOutputParser());
-
-        const response = await chain.invoke({
-          title: article.title,
-          summary: article.summary,
-        });
-
-        const titleMatch = response.match(/TITLE:\s*(.+?)(?:\nSUMMARY:|$)/);
-        const summaryMatch = response.match(/SUMMARY:\s*(.+?)$/);
-
-        const translatedTitle = titleMatch ? titleMatch[1].trim() : article.title;
-        const translatedSummary = summaryMatch ? summaryMatch[1].trim() : article.summary;
-
-        translatedArticles.push({
-          ...article,
-          title: translatedTitle,
-          summary: translatedSummary,
-        });
-      } catch (err) {
-        translatedArticles.push(article);
-      }
-    }
-
-    return translatedArticles;
-  } catch (err) {
-    return articles;
-  }
-}
 
 function calculateSentimentByTopic(articles: Article[]): Map<string, Record<string, number>> {
   const topicSentiments = new Map<string, Record<string, number>>();
@@ -205,19 +115,6 @@ function drawGradientBar(page: PDFPage, x: number, y: number, width: number, hei
   });
 }
 
-const languageFontMap: Record<string, string> = {
-  "hi": "https://fonts.gstatic.com/s/notosansdevanagari/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
-  "gu": "https://fonts.gstatic.com/s/notosansgujarati/v27/-F6hfjtqLzM2JPrysIq46ilQkw.ttf",
-  "mr": "https://fonts.gstatic.com/s/notosansdevanagari/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
-  "ta": "https://fonts.gstatic.com/s/notosanstamil/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
-  "te": "https://fonts.gstatic.com/s/notosanstelugu/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
-  "kn": "https://fonts.gstatic.com/s/notosanskannada/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
-  "ml": "https://fonts.gstatic.com/s/notosansmalayalam/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
-  "bn": "https://fonts.gstatic.com/s/notosansbengali/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
-  "pa": "https://fonts.gstatic.com/s/notosansgurmukhi/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
-  "as": "https://fonts.gstatic.com/s/notosansassamese/v27/-F6ofjtqLzM2JPrysIq46ilQkw.ttf",
-};
-
 export async function generateDigestPDF(
   articles: Article[],
   historicalDigests: Record<string, { topicCounts: Record<string, number>; sentimentCounts: Record<string, number> }>,
@@ -225,7 +122,9 @@ export async function generateDigestPDF(
   language = "en",
   weather?: { location: string; temperature: number; condition: string; humidity?: number; windSpeed?: number }
 ): Promise<string | null> {
-  let articlesToProcess = await translateArticles(articles, language);
+  // PDF is always generated in English, regardless of language setting
+  // Language setting is only for highlights and audio
+  let articlesToProcess = articles;
 
   const sanitizedArticles = articlesToProcess.map(article => ({
     ...article,
@@ -237,28 +136,11 @@ export async function generateDigestPDF(
 
   const pdfDoc = await PDFDocument.create();
   
-  let contentFont, contentFontBold, headingFont, headingFontBold;
-  const langCode = language.toLowerCase().replace("english", "en").replace("hindi", "hi");
-  
-  try {
-    if (languageFontMap[langCode] && langCode !== "en") {
-      const fontBuffer = await loadCustomFont(languageFontMap[langCode]);
-      contentFont = await pdfDoc.embedFont(fontBuffer);
-      contentFontBold = contentFont;
-      headingFont = contentFont;
-      headingFontBold = contentFont;
-    } else {
-      contentFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      contentFontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-      headingFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-      headingFontBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
-    }
-  } catch (err) {
-    contentFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    contentFontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    headingFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-    headingFontBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
-  }
+  // PDF is always in English, so use standard English fonts
+  const contentFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const contentFontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const headingFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+  const headingFontBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
 
   const sentimentCounts = { positive: 0, negative: 0, neutral: 0 };
   const topicCounts: Record<string, number> = {};
@@ -290,7 +172,8 @@ export async function generateDigestPDF(
     "pa": "ਪੰਜਾਬੀ",
   };
 
-  const displayLanguage = languageNames[language.toLowerCase()] || language;
+  // PDF is always in English, regardless of language setting
+  const displayLanguage = "English";
   const currentDate = dayjs().format("dddd, MMMM DD, YYYY");
   const generatedTime = dayjs().format("HH:mm");
 
