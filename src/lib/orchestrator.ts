@@ -61,6 +61,7 @@ interface PipelineContext {
       windSpeed?: number;
     };
   };
+  englishDigest?: NewsDigest; // English articles for PDF (always in English)
   audioScript: string;
   suggestedTopics: string[];
   sentimentResults: SentimentResult[];
@@ -88,9 +89,28 @@ export const createNewsPipeline = () => {
       }
 
       logger.info(`Collected ${digest.items.length} articles`);
+      
+      // Also collect English articles for PDF (always in English, regardless of language setting)
+      let englishDigest = digest;
+      if (input.language.toLowerCase() !== "english" && input.language.toLowerCase() !== "en") {
+        logger.info(`Collecting English articles for PDF...`);
+        try {
+          englishDigest = await collectDailyDigest(
+            input.newsType,
+            "en", // Always English for PDF
+            input.location,
+            input.state
+          );
+        } catch (err) {
+          logger.warn(`Failed to collect English articles for PDF, using original digest`);
+          englishDigest = digest;
+        }
+      }
+      
       return {
         input,
         digest,
+        englishDigest,
         audioScript: "",
         suggestedTopics: [],
         sentimentResults: [],
@@ -264,18 +284,20 @@ export const createNewsPipeline = () => {
       );
 
       try {
+        // Use englishDigest for PDF to ensure pure English content
+        const articlesForPdf = (context.englishDigest?.items || context.digest.items).map((item, index) => ({
+          title: item.title,
+          summary: item.summary,
+          source: item.source || undefined,
+          topic: context.input.newsType,
+          sentiment: (context.sentimentResults[index]?.sentiment as "positive" | "negative" | "neutral") || "neutral",
+          pubDate: item.pubDate || new Date().toISOString(),
+          keywords: [],
+          reliability: 0.8,
+        }));
+
         const pdfUrl = await generateDigestPDF(
-          enrichedArticles.map(a => ({
-            title: a.title,
-            summary: a.summary,
-            source: a.source,
-            topic: a.topic,
-            sentiment: a.sentiment,
-            pubDate: a.pubDate,
-            keywords: [],
-            reliability: 0.8,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          })) as any,
+          articlesForPdf as any,
           {},
           context.input.userId,
           "en",
