@@ -110,31 +110,53 @@ export default function AppPage() {
 
     setIsLoading(true)
     setProgress(0)
-    setCurrentStep("Collecting articles...")
+    setCurrentStep("Starting pipeline...")
     
     try {
       const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
       
-      const steps = [
-        { name: "Collecting articles...", duration: 2000 },
-        { name: "Translating content...", duration: 2000 },
-        { name: "Generating audio...", duration: 2000 },
-        { name: "Analyzing sentiment...", duration: 1500 },
-        { name: "Creating PDF...", duration: 1500 },
-        { name: "Sending email...", duration: 1000 }
+      // Progress steps with expected durations
+      const progressSteps = [
+        { name: "Collecting articles...", targetProgress: 15, expectedDuration: 8000 },
+        { name: "Translating content...", targetProgress: 30, expectedDuration: 5000 },
+        { name: "Analyzing sentiment...", targetProgress: 45, expectedDuration: 6000 },
+        { name: "Generating audio...", targetProgress: 65, expectedDuration: 10000 },
+        { name: "Creating PDF...", targetProgress: 80, expectedDuration: 5000 },
+        { name: "Sending email...", targetProgress: 95, expectedDuration: 2000 }
       ]
       
-      let currentProgress = 0
-      for (const step of steps) {
-        setCurrentStep(step.name)
-        const startTime = Date.now()
-        while (Date.now() - startTime < step.duration && currentProgress < 95) {
-          currentProgress = Math.min(95, currentProgress + Math.random() * 8)
-          setProgress(currentProgress)
-          await new Promise(resolve => setTimeout(resolve, 50))
-        }
-      }
+      let currentStepIndex = 0
+      let pipelineComplete = false
       
+      // Start progress tracking immediately
+      const progressInterval = setInterval(() => {
+        if (pipelineComplete) {
+          clearInterval(progressInterval)
+          return
+        }
+        
+        if (currentStepIndex < progressSteps.length) {
+          const step = progressSteps[currentStepIndex]
+          setCurrentStep(step.name)
+          
+          // Smoothly increment progress towards target
+          setProgress(prev => {
+            const target = step.targetProgress
+            if (prev >= target - 1) {
+              // Move to next step
+              currentStepIndex++
+              if (currentStepIndex >= progressSteps.length) {
+                pipelineComplete = true
+              }
+              return prev
+            }
+            // Increment by 1-3% per interval (200ms)
+            return Math.min(target - 1, prev + Math.random() * 3 + 1)
+          })
+        }
+      }, 200)
+      
+      // Make the API request
       const response = await fetch("/api/run-pipeline", {
         method: "POST",
         headers: {
@@ -152,6 +174,10 @@ export default function AppPage() {
       })
 
       const data = await response.json()
+      
+      // Stop interval and finalize progress
+      clearInterval(progressInterval)
+      pipelineComplete = true
 
       if (response.ok) {
         setProgress(100)

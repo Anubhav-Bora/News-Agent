@@ -48,6 +48,7 @@ export interface PipelineOutput {
   audioFileName: string;
   emailSent: boolean;
   enrichedArticles: EnrichedArticle[];
+  suggestedTopics?: string[]; // Personalized topic recommendations for next digest
 }
 
 interface PipelineContext {
@@ -76,7 +77,8 @@ export const createNewsPipeline = () => {
   // Step 1: Collect news
   const collectorStep = new RunnableLambda({
     func: async (input: PipelineInput): Promise<PipelineContext> => {
-      logger.info(`Step 1: Collecting news for topic: ${input.newsType}${input.state ? ` (State: ${input.state})` : ""}`);
+      const stepStart = Date.now();
+      logger.info(`[STEP 1/8] Collecting news for topic: ${input.newsType}${input.state ? ` (State: ${input.state})` : ""}`);
       const digest = await collectDailyDigest(
         input.newsType,
         input.language,
@@ -88,12 +90,13 @@ export const createNewsPipeline = () => {
         throw new Error("Collector agent returned empty results");
       }
 
-      logger.info(`Collected ${digest.items.length} articles`);
+      const stepDuration = Date.now() - stepStart;
+      logger.info(`✓ Step 1 complete: Collected ${digest.items.length} articles (${stepDuration}ms)`);
       
       // Also collect English articles for PDF (always in English, regardless of language setting)
       let englishDigest = digest;
       if (input.language.toLowerCase() !== "english" && input.language.toLowerCase() !== "en") {
-        logger.info(`Collecting English articles for PDF...`);
+        logger.info(`[STEP 1b] Collecting English articles for PDF...`);
         try {
           englishDigest = await collectDailyDigest(
             input.newsType,
@@ -122,12 +125,13 @@ export const createNewsPipeline = () => {
 
   const translationStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
+      const stepStart = Date.now();
       if (context.input.language.toLowerCase() === "english" || context.input.language.toLowerCase() === "en") {
-        logger.info(`Step 2: Translation skipped (English selected)`);
+        logger.info(`[STEP 2/8] Translation skipped (English selected)`);
         return context;
       }
 
-      logger.info(`Step 2: Translating articles to ${context.input.language}`);
+      logger.info(`[STEP 2/8] Translating articles to ${context.input.language}`);
       try {
         const translatedItems = await translateArticles(
           context.digest.items.map((item) => ({
@@ -140,7 +144,8 @@ export const createNewsPipeline = () => {
           context.input.language
         );
 
-        logger.info(`Translated ${translatedItems.length} articles`);
+        const stepDuration = Date.now() - stepStart;
+        logger.info(`✓ Step 2 complete: Translated ${translatedItems.length} articles (${stepDuration}ms)`);
         const updatedItems = context.digest.items.map((item, index) => ({
           ...item,
           title: translatedItems[index]?.title || item.title,
@@ -167,7 +172,8 @@ export const createNewsPipeline = () => {
 
   const audioScriptStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`Step 3: Generating audio script in ${context.input.language}`);
+      const stepStart = Date.now();
+      logger.info(`[STEP 3/8] Generating audio script in ${context.input.language}`);
       const audioScript = await generateAudioScript(
         context.digest.items.map((item) => ({
           title: item.title,
@@ -178,7 +184,8 @@ export const createNewsPipeline = () => {
         context.input.language
       );
 
-      logger.info(`Generated audio script (${audioScript.length} chars)`);
+      const stepDuration = Date.now() - stepStart;
+      logger.info(`✓ Step 3 complete: Generated audio script (${audioScript.length} chars, ${stepDuration}ms)`);
       return { ...context, audioScript };
     },
   });
@@ -186,8 +193,9 @@ export const createNewsPipeline = () => {
   
   const parallelStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`Step 4: Tracking user interests in parallel`);
-      logger.info(`Step 5: Analyzing sentiments in parallel`);
+      const stepStart = Date.now();
+      logger.info(`[STEP 4/8] Tracking user interests (parallel)`);
+      logger.info(`[STEP 5/8] Analyzing sentiments (parallel)`);
 
       const articleTitles = context.digest.items.map((item) => item.title);
       const [suggestedTopics, sentimentResults] = await Promise.all([
@@ -200,11 +208,11 @@ export const createNewsPipeline = () => {
         ),
       ]);
 
+      const stepDuration = Date.now() - stepStart;
       const topics = Array.isArray(suggestedTopics)
         ? suggestedTopics
         : [suggestedTopics];
-      logger.info(`Suggested topics: ${topics.join(", ")}`);
-      logger.info(`Analyzed sentiments for ${sentimentResults.length} articles`);
+      logger.info(`✓ Steps 4-5 complete: Suggested topics: ${topics.join(", ")}, Analyzed ${sentimentResults.length} articles (${stepDuration}ms)`);
 
       return { ...context, suggestedTopics: topics, sentimentResults };
     },
@@ -213,7 +221,8 @@ export const createNewsPipeline = () => {
   
   const audioGenerationStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`Step 6: Generating audio file`);
+      const stepStart = Date.now();
+      logger.info(`[STEP 6/8] Generating audio file`);
       const audioBuffer = await generateAudio(
         context.audioScript,
         context.input.language
@@ -226,7 +235,8 @@ export const createNewsPipeline = () => {
         audioFileName
       );
       
-      logger.info(`Audio file generated and uploaded: ${audioFileName}`);
+      const stepDuration = Date.now() - stepStart;
+      logger.info(`✓ Step 6 complete: Audio file generated (${stepDuration}ms)`);
       logger.info(`🔗 Audio URL: ${audioUrl}`);
 
       return {
@@ -239,7 +249,8 @@ export const createNewsPipeline = () => {
   });
   const enrichmentStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`📊 Step 7: Enriching articles with sentiment data`);
+      const stepStart = Date.now();
+      logger.info(`[STEP 7/8] Enriching articles with sentiment data`);
 
       const enrichedArticles: EnrichedArticle[] = context.digest.items.map(
         (item, index) => ({
@@ -257,7 +268,8 @@ export const createNewsPipeline = () => {
         })
       );
 
-      logger.info(`Articles enriched with sentiment`);
+      const stepDuration = Date.now() - stepStart;
+      logger.info(`✓ Step 7 complete: Articles enriched (${stepDuration}ms)`);
 
       return { ...context, enrichedArticles };
     },
@@ -265,7 +277,8 @@ export const createNewsPipeline = () => {
 
   const pdfGenerationStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineContext> => {
-      logger.info(`📄 Step 8: Generating PDF in English (always)`);
+      const stepStart = Date.now();
+      logger.info(`[STEP 8/8] Generating PDF in English (always)`);
       
       const enrichedArticles = context.enrichedArticles || context.digest.items.map(
         (item, index) => ({
@@ -306,7 +319,8 @@ export const createNewsPipeline = () => {
           context.input.newsType // Pass newsType to know if we should show categories
         );
 
-        logger.info(`PDF generated`);
+        const stepDuration = Date.now() - stepStart;
+        logger.info(`✓ Step 8 complete: PDF generated (${stepDuration}ms)`);
         logger.info(`🔗 PDF URL: ${pdfUrl}`);
 
         return { ...context, pdfUrl, enrichedArticles };
@@ -321,7 +335,8 @@ export const createNewsPipeline = () => {
 
   const emailStep = new RunnableLambda({
     func: async (context: PipelineContext): Promise<PipelineOutput> => {
-      logger.info(`Step 8: Sending email to ${context.input.email}`);
+      const stepStart = Date.now();
+      logger.info(`[STEP 9/9] Sending email to ${context.input.email}`);
 
       const enrichedArticles = context.enrichedArticles || context.digest.items.map(
         (item, index) => ({
@@ -362,7 +377,8 @@ export const createNewsPipeline = () => {
         Object.keys(attachmentsData).length > 0 ? attachmentsData : undefined
       );
 
-      logger.info(`Email sent successfully to ${userName}`);
+      const stepDuration = Date.now() - stepStart;
+      logger.info(`✓ Step 9 complete: Email sent to ${userName} (${stepDuration}ms)`);
 
       return {
         newsCollected: enrichedArticles.length,
@@ -370,6 +386,7 @@ export const createNewsPipeline = () => {
         audioFileName: context.audioFileName,
         emailSent,
         enrichedArticles,
+        suggestedTopics: context.suggestedTopics, // Return personalized topic suggestions
       };
     },
   });
@@ -394,6 +411,7 @@ export const executePipeline = async (
   input: PipelineInput
 ): Promise<PipelineOutput> => {
   const pipeline = createNewsPipeline();
+  const startTime = Date.now();
 
   try {
     logger.info(`Starting pipeline for user: ${input.userId}`, {
@@ -403,10 +421,13 @@ export const executePipeline = async (
 
     const result = await pipeline.invoke(input);
 
+    const totalTime = Date.now() - startTime;
     logger.info(`✨ Pipeline completed successfully`, {
       articlesProcessed: result.newsCollected,
       audioGenerated: result.audioGenerated,
       emailSent: result.emailSent,
+      totalTimeMs: totalTime,
+      totalTimeSecs: (totalTime / 1000).toFixed(2),
     });
 
     return result;

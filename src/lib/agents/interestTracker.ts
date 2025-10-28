@@ -73,20 +73,30 @@ export async function updateInterestProfile(userId: string, topics: string[]): P
   const newInterests = { ...interests };
 
   const normalizedTopics = topics.map(t => t.toLowerCase().trim());
+  
+  // Boost interests by 0.25 instead of 0.15 (more aggressive learning)
   for (const topic of normalizedTopics) {
-    newInterests[topic] = Math.min(1, (newInterests[topic] || 0.5) + 0.15);
+    newInterests[topic] = Math.min(1, (newInterests[topic] || 0.5) + 0.25);
   }
 
+  // Decay non-selected topics more slowly to maintain diversity
   for (const key of Object.keys(newInterests)) {
     if (!normalizedTopics.includes(key)) {
-      newInterests[key] = Math.max(0.1, newInterests[key] - 0.03);
+      newInterests[key] = Math.max(0.15, newInterests[key] - 0.05); // Changed from 0.1 and 0.03
     }
   }
 
-  await updateUserInterests(userId, newInterests);
-  console.log(`✅ Updated interests for user ${userId}:`, newInterests);
+  // Normalize so interests sum to 1.5 (for reasonable distribution)
+  const sum = Object.values(newInterests).reduce((a, b) => a + b, 0);
+  const normalized: Record<string, number> = {};
+  for (const [key, value] of Object.entries(newInterests)) {
+    normalized[key] = (value as number) / (sum / 1.5);
+  }
+
+  await updateUserInterests(userId, normalized);
+  console.log(`✅ Updated interests for user ${userId}:`, normalized);
   
-  return newInterests;
+  return normalized;
 }
 
 export async function getRankedTopics(userId: string): Promise<string[]> {
@@ -178,5 +188,27 @@ export async function analyzeInterestTrends(userId: string): Promise<{
     topInterests,
     growingInterests,
     decliningInterests
+  };
+}
+
+// NEW: Get personalized recommendations for next digest
+export async function getPersonalizedRecommendations(userId: string): Promise<{
+  recommendedTopics: string[];
+  confidence: number;
+  reason: string;
+}> {
+  const interests = await getUserInterests(userId);
+  const topTopics = Object.entries(interests)
+    .sort(([, a], [, b]) => (b as number) - (a as number))
+    .slice(0, 5)
+    .map(([topic]) => topic);
+
+  const avgInterest = Object.values(interests).reduce((a, b) => a + b as number, 0) / Object.keys(interests).length;
+  const confidence = Math.min(1, avgInterest);
+
+  return {
+    recommendedTopics: topTopics,
+    confidence,
+    reason: `Based on your browsing history. Top interests: ${topTopics.join(", ")}`
   };
 }
