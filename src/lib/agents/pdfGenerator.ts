@@ -65,8 +65,8 @@ function drawGradientBar(
     width,
     height,
     color: rgb(0.92, 0.92, 0.92),
-    borderColor: rgb(0.7, 0.7, 0.7),
-    borderWidth: 0.5,
+    borderColor: rgb(0.75, 0.75, 0.75),
+    borderWidth: 0.3,
   })
 
   page.drawRectangle({
@@ -104,7 +104,7 @@ function calculateSentimentByTopic(articles: Article[]): Map<string, Record<stri
 
 function calculateAverageReliability(articles: Article[]): number {
   const reliable = articles.filter((a) => a.reliability !== undefined)
-  if (reliable.length === 0) return 0.8
+  if (reliable.length === 0) return 0
   return reliable.reduce((sum, a) => sum + (a.reliability || 0), 0) / reliable.length
 }
 
@@ -141,7 +141,9 @@ export async function generateDigestPDF(
   weather?: { location: string; temperature: number; condition: string; humidity?: number; windSpeed?: number },
   newsType?: string,
 ): Promise<string | null> {
-  const sanitizedArticles = articles.map((article) => ({
+  const articlesToProcess = articles
+
+  const sanitizedArticles = articlesToProcess.map((article) => ({
     ...article,
     title: sanitizeTextForPDF(article.title),
     summary: sanitizeTextForPDF(article.summary),
@@ -150,10 +152,11 @@ export async function generateDigestPDF(
   }))
 
   const pdfDoc = await PDFDocument.create()
-  const timesFont = await pdfDoc.embedFont(StandardFonts.TimesRoman)
-  const timesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold)
-  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica)
-  const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+
+  const contentFont = await pdfDoc.embedFont(StandardFonts.Helvetica)
+  const contentFontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
+  const headingFont = await pdfDoc.embedFont(StandardFonts.TimesRoman)
+  const headingFontBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold)
 
   const sentimentCounts = { positive: 0, negative: 0, neutral: 0 }
   const topicCounts: Record<string, number> = {}
@@ -163,385 +166,409 @@ export async function generateDigestPDF(
   for (const a of sanitizedArticles) {
     sentimentCounts[a.sentiment]++
     topicCounts[a.topic] = (topicCounts[a.topic] || 0) + 1
-    if (a.source) sourceCount[a.source] = (sourceCount[a.source] || 0) + 1
+    if (a.source) {
+      sourceCount[a.source] = (sourceCount[a.source] || 0) + 1
+    }
   }
 
-  const margin = 35
+  const margin = 40
   const pageWidth = 595 - 2 * margin
   const currentDate = dayjs().format("dddd, MMMM DD, YYYY")
 
   let pageNumber = 1
 
-  const addMasthead = (page: PDFPage) => {
-    page.drawRectangle({
-      x: 0,
-      y: 755,
-      width: 595,
-      height: 87,
-      color: rgb(1, 1, 1),
-      borderColor: rgb(0, 0, 0),
-      borderWidth: 0,
-    })
+  const addHeader = (page: PDFPage, isFirst = false) => {
+    if (isFirst) {
+      page.drawRectangle({
+        x: 0,
+        y: 755,
+        width: 595,
+        height: 87,
+        color: rgb(0.05, 0.1, 0.2),
+      })
 
-    page.drawLine({
-      start: { x: margin, y: 755 },
-      end: { x: 595 - margin, y: 755 },
-      thickness: 4,
-      color: rgb(0, 0, 0),
-    })
+      page.drawLine({
+        start: { x: 0, y: 753 },
+        end: { x: 595, y: 753 },
+        thickness: 3,
+        color: rgb(0, 0, 0),
+      })
 
-    page.drawText("DAILY DIGEST", {
-      x: margin,
-      y: 810,
-      size: 52,
-      font: timesBold,
-      color: rgb(0, 0, 0),
-    })
+      page.drawText("DAILY DIGEST", {
+        x: margin,
+        y: 820,
+        size: 48,
+        font: headingFontBold,
+        color: rgb(1, 1, 1),
+      })
 
-    page.drawText("NEW DELHI | THURSDAY, OCTOBER 28, 2025 | Vol. 38, No. 302", {
-      x: margin,
-      y: 790,
-      size: 8,
-      font: helvetica,
-      color: rgb(0.3, 0.3, 0.3),
-    })
+      page.drawText("AI-Powered News Analysis & Market Sentiment Report", {
+        x: margin,
+        y: 795,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.85, 0.85, 0.85),
+      })
 
-    page.drawText("Published since 2025 | www.dailydigest.news", {
-      x: margin,
-      y: 778,
-      size: 7,
-      font: helvetica,
-      color: rgb(0.5, 0.5, 0.5),
-    })
+      page.drawLine({
+        start: { x: 0, y: 753 },
+        end: { x: 595, y: 753 },
+        thickness: 1,
+        color: rgb(0.85, 0.65, 0.15),
+      })
 
-    page.drawLine({
-      start: { x: margin, y: 774 },
-      end: { x: 595 - margin, y: 774 },
-      thickness: 1,
-      color: rgb(0, 0, 0),
-    })
+      page.drawText(currentDate, {
+        x: 595 - margin - 150,
+        y: 820,
+        size: 10,
+        font: contentFont,
+        color: rgb(0.9, 0.9, 0.9),
+      })
 
-    return 745
-  }
+      return 740
+    } else {
+      page.drawRectangle({
+        x: margin,
+        y: 790,
+        width: pageWidth,
+        height: 25,
+        color: rgb(0.05, 0.1, 0.2),
+      })
 
-  const addPageHeader = (page: PDFPage, num: number) => {
-    page.drawLine({
-      start: { x: margin, y: 800 },
-      end: { x: 595 - margin, y: 800 },
-      thickness: 1,
-      color: rgb(0, 0, 0),
-    })
+      page.drawLine({
+        start: { x: margin, y: 788 },
+        end: { x: 595 - margin, y: 788 },
+        thickness: 1,
+        color: rgb(0.85, 0.65, 0.15),
+      })
 
-    page.drawText("DAILY DIGEST", {
-      x: margin,
-      y: 810,
-      size: 10,
-      font: timesBold,
-      color: rgb(0, 0, 0),
-    })
+      page.drawText("DAILY DIGEST", {
+        x: margin + 10,
+        y: 803,
+        size: 12,
+        font: headingFontBold,
+        color: rgb(1, 1, 1),
+      })
 
-    page.drawText(`Page ${num} | ${currentDate}`, {
-      x: 595 - margin - 150,
-      y: 810,
-      size: 9,
-      font: helvetica,
-      color: rgb(0.3, 0.3, 0.3),
-    })
+      page.drawText(`Page ${pageNumber}`, {
+        x: 595 - margin - 30,
+        y: 803,
+        size: 10,
+        font: contentFont,
+        color: rgb(0.85, 0.85, 0.85),
+      })
 
-    page.drawLine({
-      start: { x: margin, y: 805 },
-      end: { x: 595 - margin, y: 805 },
-      thickness: 0.5,
-      color: rgb(0.7, 0.7, 0.7),
-    })
-
-    return 790
+      return 775
+    }
   }
 
   const addFooter = (page: PDFPage, num: number) => {
     page.drawLine({
-      start: { x: margin, y: 50 },
-      end: { x: 595 - margin, y: 50 },
-      thickness: 0.5,
-      color: rgb(0.7, 0.7, 0.7),
+      start: { x: margin, y: 45 },
+      end: { x: 595 - margin, y: 45 },
+      thickness: 1,
+      color: rgb(0.85, 0.65, 0.15),
     })
 
-    page.drawText("© 2025 Daily Digest News | All rights reserved", {
+    page.drawText("© 2025 Daily Digest News | All Rights Reserved", {
       x: margin,
-      y: 35,
-      size: 6,
-      font: helvetica,
-      color: rgb(0.5, 0.5, 0.5),
+      y: 32,
+      size: 7,
+      font: contentFont,
+      color: rgb(0.4, 0.4, 0.4),
     })
 
     page.drawText(`Generated: ${dayjs().format("YYYY-MM-DD HH:mm")}`, {
       x: 595 - margin - 120,
-      y: 35,
-      size: 6,
-      font: helvetica,
-      color: rgb(0.5, 0.5, 0.5),
+      y: 32,
+      size: 7,
+      font: contentFont,
+      color: rgb(0.4, 0.4, 0.4),
     })
 
     page.drawText(`${num}`, {
-      x: 595 - margin - 20,
-      y: 35,
+      x: 595 - margin - 15,
+      y: 32,
       size: 8,
-      font: timesBold,
-      color: rgb(0, 0, 0),
+      font: contentFontBold,
+      color: rgb(0.05, 0.1, 0.2),
     })
   }
 
   let page = pdfDoc.addPage([595, 842])
-  let yPos = addMasthead(page)
+  let yPos = addHeader(page, true)
+
+  yPos -= 15
 
   const totalArticles = sanitizedArticles.length
   const avgReliability = calculateAverageReliability(sanitizedArticles)
   const topTopics = Object.entries(topicCounts).sort((a, b) => b[1] - a[1])
-  const topSources = Object.entries(sourceCount).sort((a, b) => b[1] - a[1]).slice(0, 4)
+  const topSources = Object.entries(sourceCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
   const volatilityIndex = calculateVolatilityIndex(sentimentCounts)
   const marketConfidence = calculateMarketConfidence(sanitizedArticles, avgReliability)
+
+  page.drawRectangle({
+    x: margin,
+    y: yPos - 90,
+    width: pageWidth,
+    height: 90,
+    color: rgb(0.94, 0.96, 0.99),
+    borderColor: rgb(0, 0, 0),
+    borderWidth: 2,
+  })
+
+  page.drawText("EXECUTIVE SUMMARY", {
+    x: margin + 12,
+    y: yPos - 15,
+    size: 12,
+    font: headingFontBold,
+    color: rgb(0.05, 0.1, 0.2),
+  })
+
+  const summaryLines = wrapText(
+    `This comprehensive digest analyzes ${totalArticles} articles from ${topSources.length} premium news sources. Market sentiment is predominantly ${Object.entries(sentimentCounts).sort((a, b) => b[1] - a[1])[0][0]} with ${topTopics[0]?.[1] || 0} articles focused on ${topTopics[0]?.[0] || "general"} developments. Source credibility averages ${(avgReliability * 100).toFixed(0)}%, indicating institutional-grade coverage.`,
+    100,
+  )
+
+  let summaryY = yPos - 32
+  for (const line of summaryLines) {
+    page.drawText(line, {
+      x: margin + 12,
+      y: summaryY,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.1, 0.1, 0.1),
+    })
+    summaryY -= 10
+  }
+
+  yPos -= 110
+
+  if (weather) {
+    if (yPos < 180) {
+      addFooter(page, pageNumber)
+      pageNumber++
+      page = pdfDoc.addPage([595, 842])
+      yPos = addHeader(page)
+    }
+
+    page.drawRectangle({
+      x: margin,
+      y: yPos - 95,
+      width: pageWidth,
+      height: 95,
+      color: rgb(0.92, 0.96, 0.99),
+      borderColor: rgb(0.15, 0.45, 0.85),
+      borderWidth: 2,
+    })
+
+    page.drawText("WEATHER REPORT", {
+      x: margin + 12,
+      y: yPos - 15,
+      size: 12,
+      font: headingFontBold,
+      color: rgb(0.15, 0.45, 0.85),
+    })
+
+    page.drawText(`Location: ${weather.location}`, {
+      x: margin + 12,
+      y: yPos - 32,
+      size: 10,
+      font: contentFont,
+      color: rgb(0.1, 0.1, 0.1),
+    })
+
+    page.drawText(`Temperature: ${weather.temperature}°C | Condition: ${weather.condition}`, {
+      x: margin + 12,
+      y: yPos - 48,
+      size: 10,
+      font: contentFont,
+      color: rgb(0.1, 0.1, 0.1),
+    })
+
+    page.drawText(
+      `Humidity: ${weather.humidity || "N/A"}% | Wind Speed: ${weather.windSpeed || "N/A"} km/h`,
+      {
+        x: margin + 12,
+        y: yPos - 64,
+        size: 10,
+        font: contentFont,
+        color: rgb(0.1, 0.1, 0.1),
+      }
+    )
+
+    page.drawText("Prepared for news digest context and travel planning", {
+      x: margin + 12,
+      y: yPos - 80,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.4, 0.4, 0.4),
+    })
+
+    yPos -= 115
+  }
+
+  page.drawText("KEY PERFORMANCE INDICATORS", {
+    x: margin,
+    y: yPos,
+    size: 13,
+    font: headingFontBold,
+    color: rgb(0.05, 0.1, 0.2),
+  })
+
+  yPos -= 25
+
+  const kpis = [
+    { label: "Total Coverage", value: totalArticles.toString(), unit: "articles", color: rgb(0.15, 0.45, 0.85) },
+    { label: "Market Confidence", value: marketConfidence.toString(), unit: "%", color: rgb(0.15, 0.75, 0.35) },
+    { label: "Volatility Index", value: volatilityIndex.toString(), unit: "pts", color: rgb(0.85, 0.25, 0.15) },
+    { label: "Source Credibility", value: (avgReliability * 100).toFixed(0), unit: "%", color: rgb(0.85, 0.65, 0.15) },
+  ]
+
+  const kpiWidth = (pageWidth - 20) / 4
+
+  for (let i = 0; i < kpis.length; i++) {
+    const kpiX = margin + 10 + i * kpiWidth
+
+    page.drawRectangle({
+      x: kpiX,
+      y: yPos - 70,
+      width: kpiWidth - 5,
+      height: 70,
+      color: rgb(1, 1, 1),
+      borderColor: kpis[i].color,
+      borderWidth: 2,
+    })
+
+    page.drawRectangle({
+      x: kpiX,
+      y: yPos - 8,
+      width: kpiWidth - 5,
+      height: 8,
+      color: kpis[i].color,
+    })
+
+    page.drawText(kpis[i].label, {
+      x: kpiX + 8,
+      y: yPos - 25,
+      size: 7,
+      font: contentFont,
+      color: rgb(0.5, 0.5, 0.5),
+    })
+
+    page.drawText(kpis[i].value + kpis[i].unit, {
+      x: kpiX + 8,
+      y: yPos - 50,
+      size: 18,
+      font: headingFontBold,
+      color: kpis[i].color,
+    })
+  }
+
+  yPos -= 90
+
+  page.drawText("MARKET SENTIMENT ANALYSIS", {
+    x: margin,
+    y: yPos,
+    size: 13,
+    font: headingFontBold,
+    color: rgb(0.05, 0.1, 0.2),
+  })
+
+  yPos -= 25
 
   const sentimentTotal = sentimentCounts.positive + sentimentCounts.negative + sentimentCounts.neutral
   const positivePercent = sentimentTotal > 0 ? (sentimentCounts.positive / sentimentTotal) * 100 : 0
   const negativePercent = sentimentTotal > 0 ? (sentimentCounts.negative / sentimentTotal) * 100 : 0
   const neutralPercent = sentimentTotal > 0 ? (sentimentCounts.neutral / sentimentTotal) * 100 : 0
 
-  yPos -= 15
-
-  page.drawText("TOP STORIES", {
-    x: margin,
-    y: yPos,
-    size: 14,
-    font: timesBold,
-    color: rgb(0, 0, 0),
-  })
-
-  page.drawLine({
-    start: { x: margin, y: yPos - 4 },
-    end: { x: margin + 80, y: yPos - 4 },
-    thickness: 3,
-    color: rgb(0.8, 0.1, 0.1),
-  })
-
-  yPos -= 25
-
-  const topArticles = sanitizedArticles.slice(0, 4)
-  for (let i = 0; i < topArticles.length; i++) {
-    const article = topArticles[i]
-
-    const sentimentColor = article.sentiment === "positive" ? rgb(0.1, 0.7, 0.1) : article.sentiment === "negative" ? rgb(0.8, 0.1, 0.1) : rgb(0.4, 0.4, 0.4)
-    const sentimentLabel = article.sentiment === "positive" ? "BULLISH" : article.sentiment === "negative" ? "BEARISH" : "NEUTRAL"
-
-    if (i > 0) {
-      page.drawLine({
-        start: { x: margin, y: yPos },
-        end: { x: 595 - margin, y: yPos },
-        thickness: 0.5,
-        color: rgb(0.8, 0.8, 0.8),
-      })
-      yPos -= 8
-    }
-
-    const titleLines = wrapText(article.title, 85)
-    page.drawText(titleLines[0], {
-      x: margin,
-      y: yPos,
-      size: 16,
-      font: timesBold,
-      color: rgb(0, 0, 0),
-    })
-
-    if (titleLines.length > 1) {
-      page.drawText(titleLines[1], {
-        x: margin,
-        y: yPos - 14,
-        size: 16,
-        font: timesBold,
-        color: rgb(0, 0, 0),
-      })
-      yPos -= 14
-    }
-
-    yPos -= 18
-
-    const summaryLines = wrapText(article.summary.substring(0, 280), 100)
-    for (let j = 0; j < Math.min(summaryLines.length, 3); j++) {
-      page.drawText(summaryLines[j], {
-        x: margin,
-        y: yPos,
-        size: 9,
-        font: timesFont,
-        color: rgb(0.2, 0.2, 0.2),
-      })
-      yPos -= 11
-    }
-
-    page.drawText(`${article.source || "SPECIAL CORRESPONDENT"} | ${article.pubDate}`, {
-      x: margin,
-      y: yPos - 3,
-      size: 7,
-      font: helvetica,
-      color: rgb(0.6, 0.6, 0.6),
-    })
-
-    page.drawRectangle({
-      x: 595 - margin - 75,
-      y: yPos - 14,
-      width: 70,
-      height: 14,
-      color: sentimentColor,
-    })
-
-    page.drawText(sentimentLabel, {
-      x: 595 - margin - 72,
-      y: yPos - 11,
-      size: 7,
-      font: helveticaBold,
-      color: rgb(1, 1, 1),
-    })
-
-    yPos -= 28
-  }
-
-  yPos -= 10
-
-  page.drawText("MARKET SNAPSHOT", {
-    x: margin,
-    y: yPos,
-    size: 12,
-    font: timesBold,
-    color: rgb(0, 0, 0),
-  })
-
-  page.drawLine({
-    start: { x: margin, y: yPos - 4 },
-    end: { x: margin + 70, y: yPos - 4 },
-    thickness: 2,
-    color: rgb(0.8, 0.1, 0.1),
-  })
-
-  yPos -= 18
-
-  const colWidth = (pageWidth - 10) / 4
-  const metrics = [
-    { label: "COVERAGE", value: totalArticles.toString(), color: rgb(0.15, 0.45, 0.85) },
-    { label: "CONFIDENCE", value: marketConfidence + "%", color: rgb(0.1, 0.7, 0.1) },
-    { label: "VOLATILITY", value: volatilityIndex.toString(), color: rgb(0.8, 0.1, 0.1) },
-    { label: "CREDIBILITY", value: Math.round(avgReliability * 100) + "%", color: rgb(0.8, 0.65, 0) },
-  ]
-
-  for (let i = 0; i < metrics.length; i++) {
-    const xPos = margin + i * colWidth
-
-    page.drawRectangle({
-      x: xPos,
-      y: yPos - 50,
-      width: colWidth - 5,
-      height: 50,
-      color: rgb(0.97, 0.97, 0.97),
-      borderColor: metrics[i].color,
-      borderWidth: 2,
-    })
-
-    page.drawText(metrics[i].label, {
-      x: xPos + 8,
-      y: yPos - 18,
-      size: 7,
-      font: helveticaBold,
-      color: rgb(0.5, 0.5, 0.5),
-    })
-
-    page.drawText(metrics[i].value, {
-      x: xPos + 8,
-      y: yPos - 35,
-      size: 18,
-      font: timesBold,
-      color: metrics[i].color,
-    })
-  }
-
-  yPos -= 65
-
-  page.drawText("SENTIMENT PULSE", {
-    x: margin,
-    y: yPos,
-    size: 12,
-    font: timesBold,
-    color: rgb(0, 0, 0),
-  })
-
-  page.drawLine({
-    start: { x: margin, y: yPos - 4 },
-    end: { x: margin + 60, y: yPos - 4 },
-    thickness: 2,
-    color: rgb(0.8, 0.1, 0.1),
-  })
-
-  yPos -= 18
-
   const sentiments = [
-    { label: "BULLISH", value: sentimentCounts.positive, percent: positivePercent, color: rgb(0.1, 0.7, 0.1) },
-    { label: "NEUTRAL", value: sentimentCounts.neutral, percent: neutralPercent, color: rgb(0.5, 0.5, 0.5) },
-    { label: "BEARISH", value: sentimentCounts.negative, percent: negativePercent, color: rgb(0.8, 0.1, 0.1) },
+    {
+      label: "Bullish",
+      value: sentimentCounts.positive,
+      percent: positivePercent,
+      color: rgb(0.15, 0.75, 0.35),
+      signal: "[+]",
+    },
+    {
+      label: "Neutral",
+      value: sentimentCounts.neutral,
+      percent: neutralPercent,
+      color: rgb(0.5, 0.5, 0.5),
+      signal: "[=]",
+    },
+    {
+      label: "Bearish",
+      value: sentimentCounts.negative,
+      percent: negativePercent,
+      color: rgb(0.85, 0.25, 0.15),
+      signal: "[-]",
+    },
   ]
 
   for (const sentiment of sentiments) {
-    page.drawText(sentiment.label, {
+    page.drawText(`${sentiment.signal} ${sentiment.label}`, {
       x: margin,
       y: yPos,
-      size: 9,
-      font: helveticaBold,
+      size: 10,
+      font: contentFontBold,
       color: sentiment.color,
     })
 
-    drawGradientBar(page, margin + 80, yPos - 6, 200, 12, sentiment.percent, sentiment.color)
+    drawGradientBar(page, margin + 100, yPos - 10, 220, 16, sentiment.percent, sentiment.color)
 
-    page.drawText(`${sentiment.value} (${sentiment.percent.toFixed(0)}%)`, {
-      x: margin + 285,
+    page.drawText(`${sentiment.value} (${sentiment.percent.toFixed(1)}%)`, {
+      x: margin + 330,
       y: yPos,
-      size: 8,
-      font: helvetica,
-      color: rgb(0.3, 0.3, 0.3),
+      size: 9,
+      font: contentFontBold,
+      color: rgb(0.1, 0.1, 0.1),
     })
 
-    yPos -= 20
+    yPos -= 26
   }
 
   addFooter(page, pageNumber)
   pageNumber++
 
   page = pdfDoc.addPage([595, 842])
-  yPos = addPageHeader(page, pageNumber)
+  yPos = addHeader(page)
 
-  page.drawText("FEATURED ANALYSIS", {
+  page.drawText("FEATURED STORIES", {
     x: margin,
     y: yPos,
-    size: 14,
-    font: timesBold,
-    color: rgb(0, 0, 0),
+    size: 13,
+    font: headingFontBold,
+    color: rgb(0.05, 0.1, 0.2),
   })
 
-  page.drawLine({
-    start: { x: margin, y: yPos - 4 },
-    end: { x: margin + 100, y: yPos - 4 },
-    thickness: 3,
-    color: rgb(0.8, 0.1, 0.1),
-  })
+  yPos -= 25
 
-  yPos -= 20
-
-  const articlesToShow = Math.min(sanitizedArticles.length, 6)
+  const articlesToShow = Math.min(sanitizedArticles.length, 5)
 
   for (let i = 0; i < articlesToShow; i++) {
     const article = sanitizedArticles[i]
-    const sentimentColor = article.sentiment === "positive" ? rgb(0.1, 0.7, 0.1) : article.sentiment === "negative" ? rgb(0.8, 0.1, 0.1) : rgb(0.5, 0.5, 0.5)
+    const sentimentColor =
+      article.sentiment === "positive"
+        ? rgb(0.15, 0.75, 0.35)
+        : article.sentiment === "negative"
+          ? rgb(0.85, 0.25, 0.15)
+          : rgb(0.5, 0.5, 0.5)
 
-    if (yPos < 150) {
-      addFooter(page, pageNumber)
-      pageNumber++
-      page = pdfDoc.addPage([595, 842])
-      yPos = addPageHeader(page, pageNumber)
-    }
+    const sentimentLabel =
+      article.sentiment === "positive" ? "BULLISH" : article.sentiment === "negative" ? "BEARISH" : "NEUTRAL"
+
+    page.drawRectangle({
+      x: margin,
+      y: yPos - 80,
+      width: pageWidth,
+      height: 80,
+      color: rgb(0.98, 0.98, 0.99),
+      borderColor: rgb(0.75, 0.75, 0.75),
+      borderWidth: 1,
+    })
 
     page.drawRectangle({
       x: margin,
@@ -551,199 +578,731 @@ export async function generateDigestPDF(
       color: sentimentColor,
     })
 
-    const titleLines = wrapText(article.title, 85)
+    const titleLines = wrapText(article.title, 80)
     page.drawText(titleLines[0], {
-      x: margin + 10,
-      y: yPos,
-      size: 13,
-      font: timesBold,
+      x: margin + 12,
+      y: yPos - 15,
+      size: 11,
+      font: headingFontBold,
       color: rgb(0, 0, 0),
     })
 
-    if (titleLines[1]) {
-      page.drawText(titleLines[1], {
-        x: margin + 10,
-        y: yPos - 14,
-        size: 13,
-        font: timesBold,
-        color: rgb(0, 0, 0),
-      })
-      yPos -= 14
-    }
-
-    yPos -= 18
-
-    page.drawText(`${article.source || "STAFF REPORTER"} • ${article.pubDate}`, {
-      x: margin + 10,
-      y: yPos,
+    page.drawText(`${article.source || "Unknown"} • ${article.pubDate || "N/A"}`, {
+      x: margin + 12,
+      y: yPos - 32,
       size: 7,
-      font: helvetica,
-      color: rgb(0.6, 0.6, 0.6),
+      font: contentFont,
+      color: rgb(0.5, 0.5, 0.5),
     })
 
-    const summaryLines = wrapText(article.summary.substring(0, 300), 95)
-    yPos -= 12
-    for (let j = 0; j < Math.min(summaryLines.length, 3); j++) {
+    const summaryLines = wrapText(article.summary, 85)
+    let summaryY = yPos - 45
+    for (let j = 0; j < Math.min(summaryLines.length, 2); j++) {
       page.drawText(summaryLines[j], {
-        x: margin + 10,
-        y: yPos,
-        size: 8,
-        font: timesFont,
-        color: rgb(0.2, 0.2, 0.2),
+        x: margin + 12,
+        y: summaryY,
+        size: 7,
+        font: contentFont,
+        color: rgb(0.3, 0.3, 0.3),
       })
-      yPos -= 10
+      summaryY -= 9
     }
 
-    yPos -= 15
+    page.drawRectangle({
+      x: 595 - margin - 85,
+      y: yPos - 30,
+      width: 80,
+      height: 16,
+      color: sentimentColor,
+    })
+
+    page.drawText(sentimentLabel, {
+      x: 595 - margin - 82,
+      y: yPos - 27,
+      size: 8,
+      font: contentFontBold,
+      color: rgb(1, 1, 1),
+    })
+
+    yPos -= 95
+  }
+
+  addFooter(page, pageNumber)
+  pageNumber++
+
+  if (newsType?.toLowerCase() === "all") {
+    const articlesByCategory: Record<string, typeof sanitizedArticles> = {}
+    const categoryOrder = ["national", "international", "tech", "sports", "regional", "general"]
+
+    for (const article of sanitizedArticles) {
+      const category = article.category || article.topic || "general"
+      if (!articlesByCategory[category]) {
+        articlesByCategory[category] = []
+      }
+      articlesByCategory[category].push(article)
+    }
+
+    const sortedCategories = Object.keys(articlesByCategory).sort((a, b) => {
+      const indexA = categoryOrder.indexOf(a.toLowerCase())
+      const indexB = categoryOrder.indexOf(b.toLowerCase())
+      return (indexA === -1 ? 999 : indexA) - (indexB === -1 ? 999 : indexB)
+    })
+
+    for (const category of sortedCategories) {
+      const categoryArticles = articlesByCategory[category]
+
+      if (yPos < 200) {
+        addFooter(page, pageNumber)
+        pageNumber++
+        page = pdfDoc.addPage([595, 842])
+        yPos = addHeader(page)
+      }
+
+      const categoryTitle = category.charAt(0).toUpperCase() + category.slice(1)
+      page.drawRectangle({
+        x: margin,
+        y: yPos - 22,
+        width: pageWidth,
+        height: 22,
+        color: rgb(0.05, 0.1, 0.2),
+      })
+
+      page.drawText(categoryTitle.toUpperCase(), {
+        x: margin + 10,
+        y: yPos - 16,
+        size: 11,
+        font: headingFontBold,
+        color: rgb(1, 1, 1),
+      })
+
+      yPos -= 32
+
+      for (let i = 0; i < Math.min(categoryArticles.length, 3); i++) {
+        const article = categoryArticles[i]
+
+        if (yPos < 140) {
+          addFooter(page, pageNumber)
+          pageNumber++
+          page = pdfDoc.addPage([595, 842])
+          yPos = addHeader(page)
+        }
+
+        const sentimentColor =
+          article.sentiment === "positive"
+            ? rgb(0.15, 0.75, 0.35)
+            : article.sentiment === "negative"
+              ? rgb(0.85, 0.25, 0.15)
+              : rgb(0.5, 0.5, 0.5)
+
+        page.drawRectangle({
+          x: margin,
+          y: yPos - 55,
+          width: pageWidth,
+          height: 55,
+          color: rgb(0.98, 0.98, 0.99),
+          borderColor: rgb(0.75, 0.75, 0.75),
+          borderWidth: 0.5,
+        })
+
+        const titleLines = wrapText(article.title, 85)
+        page.drawText(titleLines[0], {
+          x: margin + 10,
+          y: yPos - 12,
+          size: 9,
+          font: headingFontBold,
+          color: rgb(0.05, 0.1, 0.2),
+        })
+
+        page.drawText(`${article.source || "Unknown"}`, {
+          x: margin + 10,
+          y: yPos - 25,
+          size: 7,
+          font: contentFont,
+          color: rgb(0.5, 0.5, 0.5),
+        })
+
+        const summaryLines = wrapText(article.summary, 100)
+        let summaryY = yPos - 35
+        if (summaryLines.length > 0) {
+          page.drawText(summaryLines[0], {
+            x: margin + 10,
+            y: summaryY,
+            size: 7,
+            font: contentFont,
+            color: rgb(0.3, 0.3, 0.3),
+          })
+        }
+
+        page.drawRectangle({
+          x: 595 - margin - 60,
+          y: yPos - 20,
+          width: 55,
+          height: 12,
+          color: sentimentColor,
+        })
+
+        page.drawText(article.sentiment.toUpperCase(), {
+          x: 595 - margin - 57,
+          y: yPos - 18,
+          size: 6,
+          font: contentFontBold,
+          color: rgb(1, 1, 1),
+        })
+
+        yPos -= 65
+      }
+
+      yPos -= 8
+    }
+
+    addFooter(page, pageNumber)
+    pageNumber++
+  }
+
+  page = pdfDoc.addPage([595, 842])
+  yPos = addHeader(page)
+
+  page.drawText("TOPIC DISTRIBUTION & MARKET FOCUS", {
+    x: margin,
+    y: yPos,
+    size: 13,
+    font: headingFontBold,
+    color: rgb(0.05, 0.1, 0.2),
+  })
+
+  yPos -= 25
+
+  const maxTopic = Math.max(...topTopics.map((t) => t[1]), 1)
+
+  for (let i = 0; i < Math.min(topTopics.length, 6); i++) {
+    const [topic, count] = topTopics[i]
+    const percent = (count / maxTopic) * 100
+    const topicColor = getTopicColor(i)
+    const marketShare = ((count / totalArticles) * 100).toFixed(1)
+
+    page.drawText(topic, {
+      x: margin,
+      y: yPos,
+      size: 10,
+      font: contentFontBold,
+      color: rgb(0.05, 0.1, 0.2),
+    })
+
+    drawGradientBar(page, margin + 150, yPos - 10, 240, 16, percent, topicColor)
+
+    page.drawText(`${count} articles (${marketShare}%)`, {
+      x: margin + 400,
+      y: yPos,
+      size: 9,
+      font: contentFont,
+      color: rgb(0.1, 0.1, 0.1),
+    })
+
+    yPos -= 26
+  }
+
+  yPos -= 15
+
+  page.drawText("SENTIMENT BREAKDOWN BY TOPIC", {
+    x: margin,
+    y: yPos,
+    size: 13,
+    font: headingFontBold,
+    color: rgb(0.05, 0.1, 0.2),
+  })
+
+  yPos -= 25
+
+  const tableHeight = Math.min(topTopics.length, 5) * 24 + 30
+
+  page.drawRectangle({
+    x: margin,
+    y: yPos - tableHeight,
+    width: pageWidth,
+    height: tableHeight,
+    borderColor: rgb(0.05, 0.1, 0.2),
+    borderWidth: 1.5,
+  })
+
+  page.drawRectangle({
+    x: margin,
+    y: yPos - 25,
+    width: pageWidth,
+    height: 25,
+    color: rgb(0.05, 0.1, 0.2),
+  })
+
+  page.drawText("TOPIC", {
+    x: margin + 10,
+    y: yPos - 17,
+    size: 9,
+    font: headingFontBold,
+    color: rgb(1, 1, 1),
+  })
+
+  page.drawText("BULLISH", {
+    x: margin + 180,
+    y: yPos - 17,
+    size: 9,
+    font: headingFontBold,
+    color: rgb(0.85, 1, 0.85),
+  })
+
+  page.drawText("BEARISH", {
+    x: margin + 270,
+    y: yPos - 17,
+    size: 9,
+    font: headingFontBold,
+    color: rgb(1, 0.85, 0.85),
+  })
+
+  page.drawText("NEUTRAL", {
+    x: margin + 360,
+    y: yPos - 17,
+    size: 9,
+    font: headingFontBold,
+    color: rgb(0.95, 0.95, 0.95),
+  })
+
+  let topicRowY = yPos - 48
+  for (let i = 0; i < Math.min(topTopics.length, 5); i++) {
+    const topic = topTopics[i][0]
+    const sentiments = topicSentiments.get(topic) || { positive: 0, negative: 0, neutral: 0 }
+
+    const bgColor = i % 2 === 0 ? rgb(0.98, 0.98, 0.99) : rgb(1, 1, 1)
+    page.drawRectangle({
+      x: margin,
+      y: topicRowY - 20,
+      width: pageWidth,
+      height: 20,
+      color: bgColor,
+    })
+
+    page.drawText(topic.substring(0, 25), {
+      x: margin + 10,
+      y: topicRowY - 15,
+      size: 9,
+      font: contentFont,
+      color: rgb(0.05, 0.1, 0.2),
+    })
+
+    page.drawText(sentiments.positive.toString(), {
+      x: margin + 180,
+      y: topicRowY - 15,
+      size: 9,
+      font: contentFontBold,
+      color: rgb(0.15, 0.75, 0.35),
+    })
+
+    page.drawText(sentiments.negative.toString(), {
+      x: margin + 270,
+      y: topicRowY - 15,
+      size: 9,
+      font: contentFontBold,
+      color: rgb(0.85, 0.25, 0.15),
+    })
+
+    page.drawText(sentiments.neutral.toString(), {
+      x: margin + 360,
+      y: topicRowY - 15,
+      size: 9,
+      font: contentFontBold,
+      color: rgb(0.5, 0.5, 0.5),
+    })
+
+    topicRowY -= 24
   }
 
   addFooter(page, pageNumber)
   pageNumber++
 
   page = pdfDoc.addPage([595, 842])
-  yPos = addPageHeader(page, pageNumber)
+  yPos = addHeader(page)
 
-  page.drawText("SECTOR ANALYSIS", {
+  page.drawText("SOURCE ANALYSIS & CREDIBILITY ASSESSMENT", {
     x: margin,
     y: yPos,
-    size: 14,
-    font: timesBold,
-    color: rgb(0, 0, 0),
+    size: 13,
+    font: headingFontBold,
+    color: rgb(0.05, 0.1, 0.2),
   })
 
-  page.drawLine({
-    start: { x: margin, y: yPos - 4 },
-    end: { x: margin + 90, y: yPos - 4 },
-    thickness: 3,
-    color: rgb(0.8, 0.1, 0.1),
-  })
-
-  yPos -= 20
-
-  const maxTopic = Math.max(...topTopics.map((t) => t[1]), 1)
-
-  for (let i = 0; i < Math.min(topTopics.length, 5); i++) {
-    const [topic, count] = topTopics[i]
-    const percent = (count / maxTopic) * 100
-    const topicColor = getTopicColor(i)
-    const share = ((count / totalArticles) * 100).toFixed(1)
-
-    page.drawText(topic.toUpperCase(), {
-      x: margin,
-      y: yPos,
-      size: 10,
-      font: helveticaBold,
-      color: rgb(0, 0, 0),
-    })
-
-    drawGradientBar(page, margin + 120, yPos - 8, 280, 14, percent, topicColor)
-
-    page.drawText(`${count} articles (${share}%)`, {
-      x: margin + 405,
-      y: yPos,
-      size: 8,
-      font: helvetica,
-      color: rgb(0.4, 0.4, 0.4),
-    })
-
-    yPos -= 25
-  }
-
-  yPos -= 10
-
-  page.drawText("SOURCE CREDIBILITY", {
-    x: margin,
-    y: yPos,
-    size: 12,
-    font: timesBold,
-    color: rgb(0, 0, 0),
-  })
-
-  page.drawLine({
-    start: { x: margin, y: yPos - 4 },
-    end: { x: margin + 80, y: yPos - 4 },
-    thickness: 2,
-    color: rgb(0.8, 0.1, 0.1),
-  })
-
-  yPos -= 18
+  yPos -= 25
 
   const maxSource = Math.max(...topSources.map((s) => s[1]), 1)
 
-  for (const [source, count] of topSources.slice(0, 3)) {
+  for (const [source, count] of topSources) {
     const percent = (count / maxSource) * 100
-    const share = ((count / totalArticles) * 100).toFixed(1)
+    const sourceShare = ((count / totalArticles) * 100).toFixed(1)
 
     page.drawRectangle({
       x: margin,
-      y: yPos - 35,
+      y: yPos - 40,
       width: pageWidth,
-      height: 35,
-      color: rgb(0.98, 0.98, 0.98),
-      borderColor: rgb(0.85, 0.85, 0.85),
+      height: 40,
+      color: rgb(0.98, 0.98, 0.99),
+      borderColor: rgb(0.75, 0.75, 0.75),
       borderWidth: 1,
     })
 
-    page.drawText(source.substring(0, 40), {
-      x: margin + 10,
-      y: yPos - 10,
+    page.drawText(source, {
+      x: margin + 12,
+      y: yPos - 12,
+      size: 10,
+      font: contentFontBold,
+      color: rgb(0.05, 0.1, 0.2),
+    })
+
+    drawGradientBar(page, margin + 200, yPos - 25, 200, 14, percent, rgb(0.15, 0.45, 0.85))
+
+    page.drawText(`${count} articles (${sourceShare}%)`, {
+      x: margin + 410,
+      y: yPos - 12,
       size: 9,
-      font: helveticaBold,
-      color: rgb(0, 0, 0),
+      font: contentFont,
+      color: rgb(0.1, 0.1, 0.1),
     })
 
-    drawGradientBar(page, margin + 180, yPos - 18, 220, 10, percent, rgb(0.15, 0.45, 0.85))
-
-    page.drawText(`${count} articles (${share}%)`, {
-      x: margin + 405,
-      y: yPos - 10,
-      size: 8,
-      font: helvetica,
-      color: rgb(0.5, 0.5, 0.5),
-    })
-
-    yPos -= 45
+    yPos -= 50
   }
 
   yPos -= 10
 
-  page.drawText("EDITORIAL INSIGHT", {
+  page.drawText("MARKET INTELLIGENCE & STRATEGIC INSIGHTS", {
     x: margin,
     y: yPos,
-    size: 12,
-    font: timesBold,
-    color: rgb(0, 0, 0),
+    size: 13,
+    font: headingFontBold,
+    color: rgb(0.05, 0.1, 0.2),
   })
 
-  page.drawLine({
-    start: { x: margin, y: yPos - 4 },
-    end: { x: margin + 75, y: yPos - 4 },
-    thickness: 2,
-    color: rgb(0.8, 0.1, 0.1),
-  })
+  yPos -= 25
 
-  yPos -= 18
+  const insights = []
 
-  const insights = [
-    topTopics[0] ? `Market focus centres on ${topTopics[0][0].toLowerCase()}, which accounts for ${topTopics[0][1]} articles.` : "",
-    `Sentiment analysis shows ${sentimentCounts.positive} positive, ${sentimentCounts.neutral} neutral, and ${sentimentCounts.negative} negative reports.`,
-    `Source credibility rating: ${Math.round(avgReliability * 100)}% institutional grade.`,
-  ]
+  const topicLeader = topTopics[0]
+  if (topicLeader) {
+    insights.push(
+      `Market Focus: ${topicLeader[0]} dominates institutional coverage with ${topicLeader[1]} articles, representing ${((topicLeader[1] / totalArticles) * 100).toFixed(1)}% of total market discourse.`,
+    )
+  }
 
-  for (const insight of insights) {
-    if (!insight) continue
-    const lines = wrapText(insight, 105)
-    for (const line of lines) {
-      page.drawText(line, {
+  const sentimentLeader = Object.entries(sentimentCounts).sort((a, b) => b[1] - a[1])[0]
+  const sentimentPercent = sentimentTotal > 0 ? ((sentimentLeader[1] / totalArticles) * 100).toFixed(1) : "0"
+  const outlookText =
+    sentimentLeader[0] === "positive"
+      ? "bullish market outlook with growth potential"
+      : sentimentLeader[0] === "negative"
+        ? "bearish market conditions requiring defensive positioning"
+        : "neutral market stance with balanced risk-reward dynamics"
+  insights.push(
+    `Sentiment Profile: ${sentimentPercent}% of coverage exhibits ${sentimentLeader[0]} sentiment, indicating ${outlookText}.`,
+  )
+
+  if (avgReliability >= 0.8) {
+    insights.push(
+      `Data Quality: High-credibility sources dominate (${(avgReliability * 100).toFixed(0)}% institutional grade), ensuring reliable market intelligence for strategic decision-making.`,
+    )
+  }
+
+  if (volatilityIndex > 60) {
+    insights.push(
+      `Market Volatility: Elevated volatility index (${volatilityIndex} pts) indicates polarized sentiment distribution, suggesting heightened market uncertainty and potential trading opportunities.`,
+    )
+  }
+
+  for (let i = 0; i < insights.length; i++) {
+    const lines = wrapText(insights[i], 100)
+    const boxHeight = lines.length * 11 + 18
+
+    const bgColor = i === 0 ? rgb(0.94, 0.97, 1) : i === 1 ? rgb(0.97, 0.94, 1) : rgb(0.94, 1, 0.97)
+    const borderColor = i === 0 ? rgb(0.15, 0.45, 0.85) : i === 1 ? rgb(0.55, 0.15, 0.75) : rgb(0.15, 0.75, 0.35)
+
+    page.drawRectangle({
+      x: margin,
+      y: yPos - boxHeight,
+      width: pageWidth,
+      height: boxHeight,
+      color: bgColor,
+      borderColor: borderColor,
+      borderWidth: 1.5,
+    })
+
+    page.drawText(`• ${lines[0]}`, {
+      x: margin + 12,
+      y: yPos - 13,
+      size: 8,
+      font: contentFontBold,
+      color: borderColor,
+    })
+
+    let insightY = yPos - 24
+    for (let j = 1; j < lines.length; j++) {
+      page.drawText(lines[j], {
         x: margin + 15,
-        y: yPos,
+        y: insightY,
         size: 8,
-        font: timesFont,
-        color: rgb(0.2, 0.2, 0.2),
+        font: contentFont,
+        color: rgb(0.1, 0.1, 0.1),
       })
-      yPos -= 11
+      insightY -= 11
     }
-    yPos -= 5
+
+    yPos -= boxHeight + 14
+  }
+
+  addFooter(page, pageNumber)
+  pageNumber++
+
+  if (Object.keys(historicalDigests).length > 0) {
+    page = pdfDoc.addPage([595, 842])
+    yPos = addHeader(page)
+
+    page.drawText("7-DAY HISTORICAL TREND ANALYSIS", {
+      x: margin,
+      y: yPos,
+      size: 13,
+      font: headingFontBold,
+      color: rgb(0.05, 0.1, 0.2),
+    })
+
+    yPos -= 25
+
+    const historicalDates = Object.keys(historicalDigests).sort().slice(-7)
+
+    page.drawRectangle({
+      x: margin,
+      y: yPos - (historicalDates.length * 22 + 35),
+      width: pageWidth,
+      height: historicalDates.length * 22 + 35,
+      borderColor: rgb(0.05, 0.1, 0.2),
+      borderWidth: 1.5,
+    })
+
+    page.drawRectangle({
+      x: margin,
+      y: yPos - 30,
+      width: pageWidth,
+      height: 30,
+      color: rgb(0.05, 0.1, 0.2),
+    })
+
+    page.drawText("DATE", {
+      x: margin + 10,
+      y: yPos - 19,
+      size: 9,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    })
+
+    page.drawText("COVERAGE", {
+      x: margin + 100,
+      y: yPos - 19,
+      size: 9,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    })
+
+    page.drawText("SENTIMENT", {
+      x: margin + 200,
+      y: yPos - 19,
+      size: 9,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    })
+
+    page.drawText("TREND", {
+      x: margin + 310,
+      y: yPos - 19,
+      size: 9,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    })
+
+    page.drawText("TOP TOPIC", {
+      x: margin + 380,
+      y: yPos - 19,
+      size: 9,
+      font: headingFontBold,
+      color: rgb(1, 1, 1),
+    })
+
+    let histRowY = yPos - 58
+    let previousCount = 0
+
+    for (const date of historicalDates) {
+      const digest = historicalDigests[date]
+      const totalArt = Object.values(digest.topicCounts).reduce((a, b) => a + b, 0)
+      const topicHist = Object.entries(digest.topicCounts).sort((a, b) => b[1] - a[1])[0]
+      const sentimentHist = Object.entries(digest.sentimentCounts).sort((a, b) => b[1] - a[1])[0][0]
+      const trend = calculateTrendDirection(totalArt, previousCount)
+
+      const bgColor = histRowY % 44 === 0 ? rgb(0.98, 0.98, 0.99) : rgb(1, 1, 1)
+      page.drawRectangle({
+        x: margin,
+        y: histRowY - 20,
+        width: pageWidth,
+        height: 20,
+        color: bgColor,
+      })
+
+      page.drawText(date, {
+        x: margin + 10,
+        y: histRowY - 14,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.05, 0.1, 0.2),
+      })
+
+      page.drawText(totalArt.toString(), {
+        x: margin + 100,
+        y: histRowY - 14,
+        size: 9,
+        font: contentFontBold,
+        color: rgb(0.15, 0.45, 0.85),
+      })
+
+      page.drawText(sentimentHist, {
+        x: margin + 200,
+        y: histRowY - 14,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.05, 0.1, 0.2),
+      })
+
+      const trendColor =
+        trend.direction === "↑"
+          ? rgb(0.15, 0.75, 0.35)
+          : trend.direction === "↓"
+            ? rgb(0.85, 0.25, 0.15)
+            : rgb(0.5, 0.5, 0.5)
+      page.drawText(`${trend.direction} ${trend.percentage.toFixed(1)}%`, {
+        x: margin + 310,
+        y: histRowY - 14,
+        size: 8,
+        font: contentFontBold,
+        color: trendColor,
+      })
+
+      page.drawText((topicHist?.[0] || "N/A").substring(0, 18), {
+        x: margin + 380,
+        y: histRowY - 14,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.05, 0.1, 0.2),
+      })
+
+      histRowY -= 22
+      previousCount = totalArt
+    }
+
+    addFooter(page, pageNumber)
+    pageNumber++
+  }
+
+  page = pdfDoc.addPage([595, 842])
+  yPos = addHeader(page)
+
+  page.drawText("STRATEGIC RECOMMENDATIONS & ACTION ITEMS", {
+    x: margin,
+    y: yPos,
+    size: 13,
+    font: headingFontBold,
+    color: rgb(0.05, 0.1, 0.2),
+  })
+
+  yPos -= 25
+
+  const recommendations = []
+
+  if (positivePercent > 55) {
+    recommendations.push({
+      type: "BULLISH",
+      text: "Strong positive sentiment detected. Consider increasing exposure to growth opportunities in dominant sectors.",
+    })
+  } else if (negativePercent > 45) {
+    recommendations.push({
+      type: "BEARISH",
+      text: "Significant negative sentiment warrants defensive positioning. Implement risk management protocols and monitor volatility.",
+    })
+  } else {
+    recommendations.push({
+      type: "NEUTRAL",
+      text: "Balanced sentiment suggests stable conditions. Maintain current positioning with heightened monitoring.",
+    })
+  }
+
+  if (volatilityIndex > 70) {
+    recommendations.push({
+      type: "ALERT",
+      text: "High volatility index indicates market uncertainty. Exercise caution in new positions and consider hedging strategies.",
+    })
+  }
+
+  if (avgReliability < 0.75) {
+    recommendations.push({
+      type: "WARNING",
+      text: "Source credibility below institutional threshold. Cross-reference findings with additional premium sources.",
+    })
+  }
+
+  if (topSources.length < 4) {
+    recommendations.push({
+      type: "INFO",
+      text: "Limited source diversity detected. Expand monitoring network to reduce potential bias in market analysis.",
+    })
+  }
+
+  for (let i = 0; i < recommendations.length; i++) {
+    const rec = recommendations[i]
+    const lines = wrapText(rec.text, 100)
+    const boxHeight = lines.length * 11 + 22
+
+    let bgColor = rgb(0.94, 0.96, 0.99)
+    let borderColor = rgb(0.05, 0.1, 0.2)
+
+    if (rec.type === "BULLISH") {
+      bgColor = rgb(0.94, 1, 0.94)
+      borderColor = rgb(0.15, 0.75, 0.35)
+    } else if (rec.type === "BEARISH") {
+      bgColor = rgb(1, 0.94, 0.94)
+      borderColor = rgb(0.85, 0.25, 0.15)
+    } else if (rec.type === "ALERT" || rec.type === "WARNING") {
+      bgColor = rgb(1, 0.97, 0.94)
+      borderColor = rgb(0.85, 0.65, 0.15)
+    }
+
+    page.drawRectangle({
+      x: margin,
+      y: yPos - boxHeight,
+      width: pageWidth,
+      height: boxHeight,
+      color: bgColor,
+      borderColor: borderColor,
+      borderWidth: 2,
+    })
+
+    page.drawText(`[${rec.type}] ${lines[0]}`, {
+      x: margin + 12,
+      y: yPos - 15,
+      size: 9,
+      font: headingFontBold,
+      color: borderColor,
+    })
+
+    let recY = yPos - 26
+    for (let j = 1; j < lines.length; j++) {
+      page.drawText(lines[j], {
+        x: margin + 12,
+        y: recY,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.1, 0.1, 0.1),
+      })
+      recY -= 11
+    }
+
+    yPos -= boxHeight + 16
   }
 
   addFooter(page, pageNumber)
