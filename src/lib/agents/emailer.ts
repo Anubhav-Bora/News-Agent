@@ -1,4 +1,4 @@
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
@@ -95,18 +95,18 @@ Make sure to:
 }
 
 async function prepareAttachments(attachments: EmailAttachments) {
-  interface ResendAttachment {
+  interface NodemailerAttachment {
     filename: string;
     content?: Buffer;
     path?: string;
   }
-  const resendAttachments: ResendAttachment[] = [];
+  const nodemailerAttachments: NodemailerAttachment[] = [];
 
-  // Resend supports both URLs and file buffers
+  // Nodemailer supports both URLs and file buffers
   if (attachments.pdfPath) {
     try {
       const pdfBuffer = await readFile(attachments.pdfPath);
-      resendAttachments.push({
+      nodemailerAttachments.push({
         filename: attachments.pdfFileName || "news-digest.pdf",
         content: pdfBuffer,
       });
@@ -115,8 +115,8 @@ async function prepareAttachments(attachments: EmailAttachments) {
       console.error(`❌ Error reading PDF file: ${err}`);
     }
   } else if (attachments.pdfUrl) {
-    // Resend can handle URLs directly
-    resendAttachments.push({
+    // Nodemailer can handle URLs directly
+    nodemailerAttachments.push({
       filename: attachments.pdfFileName || "news-digest.pdf",
       path: attachments.pdfUrl,
     });
@@ -126,7 +126,7 @@ async function prepareAttachments(attachments: EmailAttachments) {
   if (attachments.audioPath) {
     try {
       const audioBuffer = await readFile(attachments.audioPath);
-      resendAttachments.push({
+      nodemailerAttachments.push({
         filename: attachments.audioFileName || "news-digest.mp3",
         content: audioBuffer,
       });
@@ -135,15 +135,15 @@ async function prepareAttachments(attachments: EmailAttachments) {
       console.error(`❌ Error reading audio file: ${err}`);
     }
   } else if (attachments.audioUrl) {
-    // Resend can handle URLs directly
-    resendAttachments.push({
+    // Nodemailer can handle URLs directly
+    nodemailerAttachments.push({
       filename: attachments.audioFileName || "news-digest.mp3",
       path: attachments.audioUrl,
     });
     console.log(`✅ Audio link added: ${attachments.audioFileName}`);
   }
 
-  return resendAttachments;
+  return nodemailerAttachments;
 }
 
 export async function sendEmailDigest(
@@ -153,20 +153,31 @@ export async function sendEmailDigest(
   attachments?: EmailAttachments
 ): Promise<boolean> {
   try {
-    if (!process.env.RESEND_API_KEY) {
-      console.warn("⚠️ RESEND_API_KEY not configured. Skipping email send.");
+    // Check for required environment variables
+    if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+      console.warn("⚠️ SMTP credentials not configured. Skipping email send.");
+      console.warn("Required: SMTP_HOST, SMTP_USER, SMTP_PASS");
       return false;
     }
 
     console.log(`📧 Generating email content for ${userName}...`);
     const emailContent = await generateEmailContent(articles, userName);
 
-    const resend = new Resend(process.env.RESEND_API_KEY);
+    // Create Nodemailer transporter
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      secure: process.env.SMTP_SECURE === "true", // true for 465, false for other ports
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
 
     const attachmentsList = attachments ? await prepareAttachments(attachments) : [];
 
-    // Get sender email from env or use default
-    const fromEmail = process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+    // Get sender email from env or use SMTP user
+    const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
 
     const mailOptions = {
       from: fromEmail,
@@ -177,15 +188,10 @@ export async function sendEmailDigest(
       attachments: attachmentsList.length > 0 ? attachmentsList : undefined,
     };
 
-    const info = await resend.emails.send(mailOptions);
-
-    if (info.error) {
-      console.error(`❌ Error sending email: ${info.error.message}`);
-      throw new Error(info.error.message);
-    }
+    const info = await transporter.sendMail(mailOptions);
 
     console.log(`✅ Email sent successfully to ${recipientEmail}`);
-    console.log(`📨 Message ID: ${info.data?.id}`);
+    console.log(`📨 Message ID: ${info.messageId}`);
     console.log(`📎 Attachments: ${attachmentsList.length}`);
 
     return true;

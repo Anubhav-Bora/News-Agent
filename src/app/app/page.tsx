@@ -53,15 +53,6 @@ export default function AppPage() {
   const languages = [
     { code: "hindi", label: "हिंदी (Hindi)" },
     { code: "english", label: "English" },
-    { code: "gujarati", label: "ગુજરાતી (Gujarati)" },
-    { code: "marathi", label: "मराठी (Marathi)" },
-    { code: "assamese", label: "অসমীয়া (Assamese)" },
-    { code: "bengali", label: "বাংলা (Bengali)" },
-    { code: "tamil", label: "தமிழ் (Tamil)" },
-    { code: "telugu", label: "తెలుగు (Telugu)" },
-    { code: "kannada", label: "ಕನ್ನಡ (Kannada)" },
-    { code: "malayalam", label: "മലയാളം (Malayalam)" },
-    { code: "punjabi", label: "ਪੰਜਾਬੀ (Punjabi)" },
   ]
 
   const indianStates = [
