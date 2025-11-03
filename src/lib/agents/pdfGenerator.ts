@@ -14,7 +14,10 @@ interface Article {
   category?: string
 }
 
-function wrapText(text: string, maxCharsPerLine: number): string[] {
+function wrapText(text: string | null | undefined, maxCharsPerLine: number): string[] {
+  if (!text) {
+    return [""]
+  }
   const words = text.split(" ")
   const lines: string[] = []
   let currentLine = ""
@@ -32,8 +35,32 @@ function wrapText(text: string, maxCharsPerLine: number): string[] {
   return lines
 }
 
-function sanitizeTextForPDF(text: string): string {
-  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, "").trim()
+function sanitizeTextForPDF(text: string | null | undefined): string {
+  if (!text) {
+    return ""
+  }
+  return text
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, "")
+    .replace(/₹/g, "Rs.")
+    .replace(/°/g, "deg")
+    .replace(/•/g, "|")
+    .replace(/©/g, "(C)")
+    .replace(/▲/g, "^")
+    .replace(/▼/g, "v")
+    .replace(/↑/g, "^")
+    .replace(/↓/g, "v")
+    .replace(/→/g, "->")
+    .replace(/⚠/g, "!")
+    .replace(/[^\x00-\x7F]/g, "")
+    .trim()
+}
+
+// Helper function to safely draw text to PDF
+function drawTextSafe(page: PDFPage, text: string | null | undefined, options: any) {
+  const sanitizedText = sanitizeTextForPDF(text)
+  if (sanitizedText) {
+    page.drawText(sanitizedText, options)
+  }
 }
 
 function getTopicColor(index: number): ReturnType<typeof rgb> {
@@ -80,10 +107,10 @@ function drawGradientBar(
 }
 
 function calculateTrendDirection(current: number, previous: number): { direction: string; percentage: number } {
-  if (previous === 0) return { direction: "→", percentage: 0 }
+  if (previous === 0) return { direction: "->", percentage: 0 }
   const change = ((current - previous) / previous) * 100
   return {
-    direction: change > 0 ? "↑" : change < 0 ? "↓" : "→",
+    direction: change > 0 ? "^" : change < 0 ? "v" : "->",
     percentage: Math.abs(change),
   }
 }
@@ -92,10 +119,11 @@ function calculateSentimentByTopic(articles: Article[]): Map<string, Record<stri
   const topicSentiments = new Map<string, Record<string, number>>()
 
   for (const article of articles) {
-    if (!topicSentiments.has(article.topic)) {
-      topicSentiments.set(article.topic, { positive: 0, negative: 0, neutral: 0 })
+    const topic = article.topic || "general"
+    if (!topicSentiments.has(topic)) {
+      topicSentiments.set(topic, { positive: 0, negative: 0, neutral: 0 })
     }
-    const sentiments = topicSentiments.get(article.topic)!
+    const sentiments = topicSentiments.get(topic)!
     sentiments[article.sentiment]++
   }
 
@@ -133,6 +161,218 @@ function calculateMarketConfidence(articles: Article[], avgReliability: number):
   return Math.round((positiveRatio * 0.6 + reliabilityFactor * 0.4) * 100)
 }
 
+interface WeatherData {
+  location: string
+  temperature: number
+  condition: string
+  humidity?: number
+  windSpeed?: number
+  forecast?: Array<{
+    day: string
+    high: number
+    low: number
+    condition: string
+    clouds?: number
+  }>
+}
+
+interface StockData {
+  symbol: string
+  name: string
+  price: number
+  change: number
+  changePercent: number
+  volume?: number
+  marketCap?: string
+  sector?: string
+}
+
+interface MarketIndices {
+  nifty50?: StockData
+  sensex?: StockData
+  bankNifty?: StockData
+  timestamp: string
+}
+
+async function fetchWeatherForCities(cities: string[]): Promise<WeatherData[]> {
+  const weatherPromises = cities.map(async (city) => {
+    try {
+      if (!process.env.OPENWEATHER_API_KEY) {
+        console.warn("⚠️ OPENWEATHER_API_KEY not configured, skipping weather data")
+        return null
+      }
+
+      // Fetch current weather
+      const currentResponse = await fetch(
+        `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${process.env.OPENWEATHER_API_KEY}&units=metric`
+      )
+
+      // Fetch 5-day forecast
+      const forecastResponse = await fetch(
+        `https://api.openweathermap.org/data/2.5/forecast?q=${city}&appid=${process.env.OPENWEATHER_API_KEY}&units=metric`
+      )
+
+      if (!currentResponse.ok || !forecastResponse.ok) {
+        console.warn(`⚠️ Failed to fetch weather for ${city}`)
+        return null
+      }
+
+      const currentData = await currentResponse.json()
+      const forecastData = await forecastResponse.json()
+
+      // Process forecast data to get daily forecasts
+      const dailyForecasts: Array<{
+        day: string
+        high: number
+        low: number
+        condition: string
+        clouds?: number
+      }> = []
+
+      // Group forecast by day and get min/max temperatures
+      const dailyData: Record<string, any> = {}
+      
+      forecastData.list.slice(0, 35).forEach((item: any) => { // 7 days * 5 forecasts per day
+        const date = new Date(item.dt * 1000)
+        const dayKey = date.toDateString()
+        
+        if (!dailyData[dayKey]) {
+          dailyData[dayKey] = {
+            temps: [],
+            conditions: [],
+            clouds: []
+          }
+        }
+        
+        dailyData[dayKey].temps.push(item.main.temp)
+        dailyData[dayKey].conditions.push(item.weather[0].main)
+        dailyData[dayKey].clouds.push(item.clouds?.all || 0)
+      })
+
+      // Convert to forecast array
+      Object.entries(dailyData).slice(0, 7).forEach(([dateStr, data]: [string, any]) => {
+        const date = new Date(dateStr)
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' })
+        
+        dailyForecasts.push({
+          day: dayName,
+          high: Math.round(Math.max(...data.temps)),
+          low: Math.round(Math.min(...data.temps)),
+          condition: data.conditions[0] || "Clear",
+          clouds: Math.round(data.clouds.reduce((a: number, b: number) => a + b, 0) / data.clouds.length)
+        })
+      })
+
+      return {
+        location: `${currentData.name}`,
+        temperature: Math.round(currentData.main.temp),
+        condition: currentData.weather[0]?.main || "Unknown",
+        humidity: currentData.main.humidity,
+        windSpeed: Math.round(currentData.wind.speed * 3.6),
+        forecast: dailyForecasts
+      }
+    } catch (err) {
+      console.error(`Error fetching weather data for ${city}:`, err)
+      return null
+    }
+  })
+
+  const results = await Promise.all(weatherPromises)
+  return results.filter(Boolean) as WeatherData[]
+}
+
+function getWeatherIcon(condition: string): string {
+  const iconMap: Record<string, string> = {
+    'Clear': 'SUN',
+    'Clouds': 'CLO',
+    'Rain': 'RAI',
+    'Drizzle': 'DRZ',
+    'Thunderstorm': 'THU',
+    'Snow': 'SNO',
+    'Mist': 'MIS',
+    'Fog': 'FOG',
+    'Haze': 'HAZ'
+  }
+  return iconMap[condition] || 'PAR'
+}
+
+async function fetchMarketIndices(): Promise<MarketIndices | null> {
+  try {
+    // Using Yahoo Finance API for real market data
+    const symbols = [
+      { symbol: '%5ENSEI', name: 'NIFTY 50', key: 'nifty50' },
+      { symbol: '%5EBSESN', name: 'BSE SENSEX', key: 'sensex' },
+      { symbol: '%5ENSMIDCP', name: 'NIFTY BANK', key: 'bankNifty' }
+    ]
+
+    const marketData: MarketIndices = {
+      timestamp: new Date().toISOString()
+    }
+
+    // Fetch data for each index
+    for (const { symbol, name, key } of symbols) {
+      try {
+        const response = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`,
+          {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+          }
+        )
+
+        if (!response.ok) {
+          console.warn(`⚠️ Failed to fetch data for ${name}`)
+          continue
+        }
+
+        const data = await response.json()
+        const chart = data.chart?.result?.[0]
+        
+        if (!chart) {
+          console.warn(`⚠️ No chart data for ${name}`)
+          continue
+        }
+
+        const meta = chart.meta
+        const quote = chart.indicators?.quote?.[0]
+        
+        if (!meta || !quote) {
+          console.warn(`⚠️ Invalid data structure for ${name}`)
+          continue
+        }
+
+        const currentPrice = meta.regularMarketPrice || quote.close?.[quote.close.length - 1]
+        const previousClose = meta.previousClose || meta.chartPreviousClose
+        
+        if (currentPrice && previousClose) {
+          const change = currentPrice - previousClose
+          const changePercent = (change / previousClose) * 100
+
+          const stockData: StockData = {
+            symbol: symbol.replace('%5E', '^'),
+            name: name,
+            price: Math.round(currentPrice * 100) / 100,
+            change: Math.round(change * 100) / 100,
+            changePercent: Math.round(changePercent * 100) / 100,
+            volume: meta.regularMarketVolume,
+            marketCap: meta.marketCap ? `Rs.${(meta.marketCap / 1e12).toFixed(2)}T` : undefined
+          }
+
+          marketData[key as keyof MarketIndices] = stockData as any
+        }
+      } catch (error) {
+        console.error(`Error fetching ${name}:`, error)
+      }
+    }
+
+    return Object.keys(marketData).length > 1 ? marketData : null
+  } catch (error) {
+    console.error('Error fetching market indices:', error)
+    return null
+  }
+}
+
 export async function generateDigestPDF(
   articles: Article[],
   historicalDigests: Record<string, { topicCounts: Record<string, number>; sentimentCounts: Record<string, number> }>,
@@ -140,16 +380,18 @@ export async function generateDigestPDF(
   language = "en",
   weather?: { location: string; temperature: number; condition: string; humidity?: number; windSpeed?: number },
   newsType?: string,
+  selectedTopic?: string,
 ): Promise<string | null> {
-  const articlesToProcess = articles
+  try {
+    const articlesToProcess = articles
 
-  const sanitizedArticles = articlesToProcess.map((article) => ({
-    ...article,
-    title: sanitizeTextForPDF(article.title),
-    summary: sanitizeTextForPDF(article.summary),
-    source: article.source ? sanitizeTextForPDF(article.source) : undefined,
-    topic: sanitizeTextForPDF(article.topic),
-  }))
+    const sanitizedArticles = articlesToProcess.map((article) => ({
+      ...article,
+      title: sanitizeTextForPDF(article.title),
+      summary: sanitizeTextForPDF(article.summary),
+      source: sanitizeTextForPDF(article.source),
+      topic: sanitizeTextForPDF(article.topic),
+    }))
 
   const pdfDoc = await PDFDocument.create()
 
@@ -202,7 +444,11 @@ export async function generateDigestPDF(
         color: rgb(1, 1, 1),
       })
 
-      page.drawText("AI-Powered News Analysis & Market Sentiment Report", {
+      const subtitleText = selectedTopic && selectedTopic !== "all" 
+        ? `AI-Powered ${selectedTopic.charAt(0).toUpperCase() + selectedTopic.slice(1)} News Analysis & Market Sentiment Report`
+        : "AI-Powered News Analysis & Market Sentiment Report"
+
+      page.drawText(subtitleText, {
         x: margin,
         y: 795,
         size: 8,
@@ -270,7 +516,7 @@ export async function generateDigestPDF(
       color: rgb(0.85, 0.65, 0.15),
     })
 
-    page.drawText("© 2025 Daily Digest News | All Rights Reserved", {
+    page.drawText("(C) 2025 Daily Digest News | All Rights Reserved", {
       x: margin,
       y: 32,
       size: 7,
@@ -328,7 +574,7 @@ export async function generateDigestPDF(
   })
 
   const summaryLines = wrapText(
-    `This comprehensive digest analyzes ${totalArticles} articles from ${topSources.length} premium news sources. Market sentiment is predominantly ${Object.entries(sentimentCounts).sort((a, b) => b[1] - a[1])[0][0]} with ${topTopics[0]?.[1] || 0} articles focused on ${topTopics[0]?.[0] || "general"} developments. Source credibility averages ${(avgReliability * 100).toFixed(0)}%, indicating institutional-grade coverage.`,
+    `This comprehensive digest analyzes ${sanitizedArticles.length} articles from ${topSources.length} premium news sources. Market sentiment is predominantly ${Object.entries(sentimentCounts).sort((a, b) => b[1] - a[1])[0][0]} with ${topTopics[0]?.[1] || 0} articles focused on ${topTopics[0]?.[0] || "general"} developments. Source credibility averages ${(avgReliability * 100).toFixed(0)}%, indicating institutional-grade coverage.`,
     100,
   )
 
@@ -372,7 +618,7 @@ export async function generateDigestPDF(
       color: rgb(0.15, 0.45, 0.85),
     })
 
-    page.drawText(`Location: ${weather.location}`, {
+    drawTextSafe(page, `Location: ${weather.location}`, {
       x: margin + 12,
       y: yPos - 32,
       size: 10,
@@ -380,7 +626,7 @@ export async function generateDigestPDF(
       color: rgb(0.1, 0.1, 0.1),
     })
 
-    page.drawText(`Temperature: ${weather.temperature}°C | Condition: ${weather.condition}`, {
+    drawTextSafe(page, `Temperature: ${weather.temperature}degC | Condition: ${weather.condition}`, {
       x: margin + 12,
       y: yPos - 48,
       size: 10,
@@ -410,6 +656,114 @@ export async function generateDigestPDF(
     yPos -= 115
   }
 
+  // Add Stock Analysis Report
+  const marketData = await fetchMarketIndices()
+  if (marketData) {
+    if (yPos < 200) {
+      addFooter(page, pageNumber)
+      pageNumber++
+      page = pdfDoc.addPage([595, 842])
+      yPos = addHeader(page)
+    }
+
+    page.drawRectangle({
+      x: margin,
+      y: yPos - 140,
+      width: pageWidth,
+      height: 140,
+      color: rgb(0.94, 0.99, 0.96),
+      borderColor: rgb(0.15, 0.75, 0.35),
+      borderWidth: 2,
+    })
+
+    page.drawText("MARKET ANALYSIS REPORT", {
+      x: margin + 12,
+      y: yPos - 15,
+      size: 12,
+      font: headingFontBold,
+      color: rgb(0.15, 0.75, 0.35),
+    })
+
+    page.drawText(`Real-time data as of ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`, {
+      x: margin + 12,
+      y: yPos - 30,
+      size: 8,
+      font: contentFont,
+      color: rgb(0.4, 0.4, 0.4),
+    })
+
+    let stockY = yPos - 50
+
+    // Display each index
+    const indices = [
+      { key: 'nifty50', label: 'NIFTY 50' },
+      { key: 'sensex', label: 'BSE SENSEX' },
+      { key: 'bankNifty', label: 'NIFTY BANK' }
+    ]
+
+    for (const { key, label } of indices) {
+      const stockData = marketData[key as keyof MarketIndices] as StockData | undefined
+      if (stockData) {
+        const changeColor = stockData.change >= 0 ? rgb(0.15, 0.75, 0.35) : rgb(0.85, 0.25, 0.15)
+        const changeSymbol = stockData.change >= 0 ? '^' : 'v'
+
+        page.drawText(`${label}:`, {
+          x: margin + 12,
+          y: stockY,
+          size: 10,
+          font: contentFontBold,
+          color: rgb(0.05, 0.1, 0.2),
+        })
+
+        page.drawText(`Rs.${stockData.price.toLocaleString()}`, {
+          x: margin + 120,
+          y: stockY,
+          size: 10,
+          font: contentFontBold,
+          color: rgb(0.05, 0.1, 0.2),
+        })
+
+        drawTextSafe(page, `${changeSymbol} ${stockData.change.toFixed(2)} (${stockData.changePercent.toFixed(2)}%)`, {
+          x: margin + 220,
+          y: stockY,
+          size: 9,
+          font: contentFontBold,
+          color: changeColor,
+        })
+
+        if (stockData.volume) {
+          page.drawText(`Vol: ${(stockData.volume / 1000000).toFixed(1)}M`, {
+            x: margin + 380,
+            y: stockY,
+            size: 8,
+            font: contentFont,
+            color: rgb(0.3, 0.3, 0.3),
+          })
+        }
+
+        stockY -= 18
+      }
+    }
+
+    // Market summary
+    const indices_data = [marketData.nifty50, marketData.sensex, marketData.bankNifty].filter(Boolean) as StockData[]
+    if (indices_data.length > 0) {
+      const positiveCount = indices_data.filter(stock => stock.change >= 0).length
+      const marketSentiment = positiveCount >= indices_data.length / 2 ? 'BULLISH' : 'BEARISH'
+      const sentimentColor = marketSentiment === 'BULLISH' ? rgb(0.15, 0.75, 0.35) : rgb(0.85, 0.25, 0.15)
+
+      page.drawText(`Market Sentiment: ${marketSentiment} (${positiveCount}/${indices_data.length} indices positive)`, {
+        x: margin + 12,
+        y: yPos - 125,
+        size: 9,
+        font: contentFontBold,
+        color: sentimentColor,
+      })
+    }
+
+    yPos -= 160
+  }
+
   page.drawText("KEY PERFORMANCE INDICATORS", {
     x: margin,
     y: yPos,
@@ -421,7 +775,7 @@ export async function generateDigestPDF(
   yPos -= 25
 
   const kpis = [
-    { label: "Total Coverage", value: totalArticles.toString(), unit: "articles", color: rgb(0.15, 0.45, 0.85) },
+    { label: "Total Coverage", value: sanitizedArticles.length.toString(), unit: "articles", color: rgb(0.15, 0.45, 0.85) },
     { label: "Market Confidence", value: marketConfidence.toString(), unit: "%", color: rgb(0.15, 0.75, 0.35) },
     { label: "Volatility Index", value: volatilityIndex.toString(), unit: "pts", color: rgb(0.85, 0.25, 0.15) },
     { label: "Source Credibility", value: (avgReliability * 100).toFixed(0), unit: "%", color: rgb(0.85, 0.65, 0.15) },
@@ -587,13 +941,19 @@ export async function generateDigestPDF(
       color: rgb(0, 0, 0),
     })
 
-    page.drawText(`${article.source || "Unknown"} • ${article.pubDate || "N/A"}`, {
-      x: margin + 12,
-      y: yPos - 32,
-      size: 7,
-      font: contentFont,
-      color: rgb(0.5, 0.5, 0.5),
-    })
+    const sourceText = article.source ? `Source: ${article.source}` : ""
+    const pubDateText = article.pubDate ? `Published: ${article.pubDate}` : ""
+    const sourceInfo = [sourceText, pubDateText].filter(Boolean).join(" | ")
+    
+    if (sourceInfo) {
+      page.drawText(sourceInfo, {
+        x: margin + 12,
+        y: yPos - 32,
+        size: 8,
+        font: contentFontBold,
+        color: rgb(0.15, 0.45, 0.85),
+      })
+    }
 
     const summaryLines = wrapText(article.summary, 85)
     let summaryY = yPos - 45
@@ -713,13 +1073,26 @@ export async function generateDigestPDF(
           color: rgb(0.05, 0.1, 0.2),
         })
 
-        page.drawText(`${article.source || "Unknown"}`, {
-          x: margin + 10,
-          y: yPos - 25,
-          size: 7,
-          font: contentFont,
-          color: rgb(0.5, 0.5, 0.5),
-        })
+        // Only show source if it's available and not unknown
+        if (article.source && article.source.toLowerCase() !== "unknown") {
+          page.drawRectangle({
+            x: margin + 10,
+            y: yPos - 32,
+            width: 100,
+            height: 10,
+            color: rgb(0.95, 0.97, 1),
+            borderColor: rgb(0.7, 0.8, 0.9),
+            borderWidth: 0.3,
+          })
+
+          page.drawText(`SOURCE: ${article.source}`, {
+            x: margin + 12,
+            y: yPos - 29,
+            size: 6,
+            font: contentFontBold,
+            color: rgb(0.15, 0.45, 0.85),
+          })
+        }
 
         const summaryLines = wrapText(article.summary, 100)
         let summaryY = yPos - 35
@@ -759,300 +1132,7 @@ export async function generateDigestPDF(
     pageNumber++
   }
 
-  page = pdfDoc.addPage([595, 842])
-  yPos = addHeader(page)
 
-  page.drawText("TOPIC DISTRIBUTION & MARKET FOCUS", {
-    x: margin,
-    y: yPos,
-    size: 13,
-    font: headingFontBold,
-    color: rgb(0.05, 0.1, 0.2),
-  })
-
-  yPos -= 25
-
-  const maxTopic = Math.max(...topTopics.map((t) => t[1]), 1)
-
-  for (let i = 0; i < Math.min(topTopics.length, 6); i++) {
-    const [topic, count] = topTopics[i]
-    const percent = (count / maxTopic) * 100
-    const topicColor = getTopicColor(i)
-    const marketShare = ((count / totalArticles) * 100).toFixed(1)
-
-    page.drawText(topic, {
-      x: margin,
-      y: yPos,
-      size: 10,
-      font: contentFontBold,
-      color: rgb(0.05, 0.1, 0.2),
-    })
-
-    drawGradientBar(page, margin + 150, yPos - 10, 240, 16, percent, topicColor)
-
-    page.drawText(`${count} articles (${marketShare}%)`, {
-      x: margin + 400,
-      y: yPos,
-      size: 9,
-      font: contentFont,
-      color: rgb(0.1, 0.1, 0.1),
-    })
-
-    yPos -= 26
-  }
-
-  yPos -= 15
-
-  page.drawText("SENTIMENT BREAKDOWN BY TOPIC", {
-    x: margin,
-    y: yPos,
-    size: 13,
-    font: headingFontBold,
-    color: rgb(0.05, 0.1, 0.2),
-  })
-
-  yPos -= 25
-
-  const tableHeight = Math.min(topTopics.length, 5) * 24 + 30
-
-  page.drawRectangle({
-    x: margin,
-    y: yPos - tableHeight,
-    width: pageWidth,
-    height: tableHeight,
-    borderColor: rgb(0.05, 0.1, 0.2),
-    borderWidth: 1.5,
-  })
-
-  page.drawRectangle({
-    x: margin,
-    y: yPos - 25,
-    width: pageWidth,
-    height: 25,
-    color: rgb(0.05, 0.1, 0.2),
-  })
-
-  page.drawText("TOPIC", {
-    x: margin + 10,
-    y: yPos - 17,
-    size: 9,
-    font: headingFontBold,
-    color: rgb(1, 1, 1),
-  })
-
-  page.drawText("BULLISH", {
-    x: margin + 180,
-    y: yPos - 17,
-    size: 9,
-    font: headingFontBold,
-    color: rgb(0.85, 1, 0.85),
-  })
-
-  page.drawText("BEARISH", {
-    x: margin + 270,
-    y: yPos - 17,
-    size: 9,
-    font: headingFontBold,
-    color: rgb(1, 0.85, 0.85),
-  })
-
-  page.drawText("NEUTRAL", {
-    x: margin + 360,
-    y: yPos - 17,
-    size: 9,
-    font: headingFontBold,
-    color: rgb(0.95, 0.95, 0.95),
-  })
-
-  let topicRowY = yPos - 48
-  for (let i = 0; i < Math.min(topTopics.length, 5); i++) {
-    const topic = topTopics[i][0]
-    const sentiments = topicSentiments.get(topic) || { positive: 0, negative: 0, neutral: 0 }
-
-    const bgColor = i % 2 === 0 ? rgb(0.98, 0.98, 0.99) : rgb(1, 1, 1)
-    page.drawRectangle({
-      x: margin,
-      y: topicRowY - 20,
-      width: pageWidth,
-      height: 20,
-      color: bgColor,
-    })
-
-    page.drawText(topic.substring(0, 25), {
-      x: margin + 10,
-      y: topicRowY - 15,
-      size: 9,
-      font: contentFont,
-      color: rgb(0.05, 0.1, 0.2),
-    })
-
-    page.drawText(sentiments.positive.toString(), {
-      x: margin + 180,
-      y: topicRowY - 15,
-      size: 9,
-      font: contentFontBold,
-      color: rgb(0.15, 0.75, 0.35),
-    })
-
-    page.drawText(sentiments.negative.toString(), {
-      x: margin + 270,
-      y: topicRowY - 15,
-      size: 9,
-      font: contentFontBold,
-      color: rgb(0.85, 0.25, 0.15),
-    })
-
-    page.drawText(sentiments.neutral.toString(), {
-      x: margin + 360,
-      y: topicRowY - 15,
-      size: 9,
-      font: contentFontBold,
-      color: rgb(0.5, 0.5, 0.5),
-    })
-
-    topicRowY -= 24
-  }
-
-  addFooter(page, pageNumber)
-  pageNumber++
-
-  page = pdfDoc.addPage([595, 842])
-  yPos = addHeader(page)
-
-  page.drawText("SOURCE ANALYSIS & CREDIBILITY ASSESSMENT", {
-    x: margin,
-    y: yPos,
-    size: 13,
-    font: headingFontBold,
-    color: rgb(0.05, 0.1, 0.2),
-  })
-
-  yPos -= 25
-
-  const maxSource = Math.max(...topSources.map((s) => s[1]), 1)
-
-  for (const [source, count] of topSources) {
-    const percent = (count / maxSource) * 100
-    const sourceShare = ((count / totalArticles) * 100).toFixed(1)
-
-    page.drawRectangle({
-      x: margin,
-      y: yPos - 40,
-      width: pageWidth,
-      height: 40,
-      color: rgb(0.98, 0.98, 0.99),
-      borderColor: rgb(0.75, 0.75, 0.75),
-      borderWidth: 1,
-    })
-
-    page.drawText(source, {
-      x: margin + 12,
-      y: yPos - 12,
-      size: 10,
-      font: contentFontBold,
-      color: rgb(0.05, 0.1, 0.2),
-    })
-
-    drawGradientBar(page, margin + 200, yPos - 25, 200, 14, percent, rgb(0.15, 0.45, 0.85))
-
-    page.drawText(`${count} articles (${sourceShare}%)`, {
-      x: margin + 410,
-      y: yPos - 12,
-      size: 9,
-      font: contentFont,
-      color: rgb(0.1, 0.1, 0.1),
-    })
-
-    yPos -= 50
-  }
-
-  yPos -= 10
-
-  page.drawText("MARKET INTELLIGENCE & STRATEGIC INSIGHTS", {
-    x: margin,
-    y: yPos,
-    size: 13,
-    font: headingFontBold,
-    color: rgb(0.05, 0.1, 0.2),
-  })
-
-  yPos -= 25
-
-  const insights = []
-
-  const topicLeader = topTopics[0]
-  if (topicLeader) {
-    insights.push(
-      `Market Focus: ${topicLeader[0]} dominates institutional coverage with ${topicLeader[1]} articles, representing ${((topicLeader[1] / totalArticles) * 100).toFixed(1)}% of total market discourse.`,
-    )
-  }
-
-  const sentimentLeader = Object.entries(sentimentCounts).sort((a, b) => b[1] - a[1])[0]
-  const sentimentPercent = sentimentTotal > 0 ? ((sentimentLeader[1] / totalArticles) * 100).toFixed(1) : "0"
-  const outlookText =
-    sentimentLeader[0] === "positive"
-      ? "bullish market outlook with growth potential"
-      : sentimentLeader[0] === "negative"
-        ? "bearish market conditions requiring defensive positioning"
-        : "neutral market stance with balanced risk-reward dynamics"
-  insights.push(
-    `Sentiment Profile: ${sentimentPercent}% of coverage exhibits ${sentimentLeader[0]} sentiment, indicating ${outlookText}.`,
-  )
-
-  if (avgReliability >= 0.8) {
-    insights.push(
-      `Data Quality: High-credibility sources dominate (${(avgReliability * 100).toFixed(0)}% institutional grade), ensuring reliable market intelligence for strategic decision-making.`,
-    )
-  }
-
-  if (volatilityIndex > 60) {
-    insights.push(
-      `Market Volatility: Elevated volatility index (${volatilityIndex} pts) indicates polarized sentiment distribution, suggesting heightened market uncertainty and potential trading opportunities.`,
-    )
-  }
-
-  for (let i = 0; i < insights.length; i++) {
-    const lines = wrapText(insights[i], 100)
-    const boxHeight = lines.length * 11 + 18
-
-    const bgColor = i === 0 ? rgb(0.94, 0.97, 1) : i === 1 ? rgb(0.97, 0.94, 1) : rgb(0.94, 1, 0.97)
-    const borderColor = i === 0 ? rgb(0.15, 0.45, 0.85) : i === 1 ? rgb(0.55, 0.15, 0.75) : rgb(0.15, 0.75, 0.35)
-
-    page.drawRectangle({
-      x: margin,
-      y: yPos - boxHeight,
-      width: pageWidth,
-      height: boxHeight,
-      color: bgColor,
-      borderColor: borderColor,
-      borderWidth: 1.5,
-    })
-
-    page.drawText(`• ${lines[0]}`, {
-      x: margin + 12,
-      y: yPos - 13,
-      size: 8,
-      font: contentFontBold,
-      color: borderColor,
-    })
-
-    let insightY = yPos - 24
-    for (let j = 1; j < lines.length; j++) {
-      page.drawText(lines[j], {
-        x: margin + 15,
-        y: insightY,
-        size: 8,
-        font: contentFont,
-        color: rgb(0.1, 0.1, 0.1),
-      })
-      insightY -= 11
-    }
-
-    yPos -= boxHeight + 14
-  }
-
-  addFooter(page, pageNumber)
-  pageNumber++
 
   if (Object.keys(historicalDigests).length > 0) {
     page = pdfDoc.addPage([595, 842])
@@ -1171,9 +1251,9 @@ export async function generateDigestPDF(
       })
 
       const trendColor =
-        trend.direction === "↑"
+        trend.direction === "^"
           ? rgb(0.15, 0.75, 0.35)
-          : trend.direction === "↓"
+          : trend.direction === "v"
             ? rgb(0.85, 0.25, 0.15)
             : rgb(0.5, 0.5, 0.5)
       page.drawText(`${trend.direction} ${trend.percentage.toFixed(1)}%`, {
@@ -1200,112 +1280,453 @@ export async function generateDigestPDF(
     pageNumber++
   }
 
-  page = pdfDoc.addPage([595, 842])
-  yPos = addHeader(page)
+  // STRATEGIC RECOMMENDATIONS & ACTION ITEMS section removed
 
-  page.drawText("STRATEGIC RECOMMENDATIONS & ACTION ITEMS", {
-    x: margin,
-    y: yPos,
-    size: 13,
-    font: headingFontBold,
-    color: rgb(0.05, 0.1, 0.2),
-  })
+  // Add comprehensive weather report for major Indian cities
+  const weatherCities = ['Delhi', 'Mumbai', 'Bangalore']
+  const cityWeatherData = await fetchWeatherForCities(weatherCities)
 
-  yPos -= 25
+  if (cityWeatherData.length > 0) {
+    page = pdfDoc.addPage([595, 842])
+    yPos = addHeader(page)
 
-  const recommendations = []
-
-  if (positivePercent > 55) {
-    recommendations.push({
-      type: "BULLISH",
-      text: "Strong positive sentiment detected. Consider increasing exposure to growth opportunities in dominant sectors.",
+    page.drawText("WEEKLY WEATHER OUTLOOK - MAJOR CITIES", {
+      x: margin,
+      y: yPos,
+      size: 13,
+      font: headingFontBold,
+      color: rgb(0.05, 0.1, 0.2),
     })
-  } else if (negativePercent > 45) {
-    recommendations.push({
-      type: "BEARISH",
-      text: "Significant negative sentiment warrants defensive positioning. Implement risk management protocols and monitor volatility.",
+
+    yPos -= 25
+
+    page.drawText("7-Day Forecast with Cloud Coverage & Conditions", {
+      x: margin,
+      y: yPos,
+      size: 9,
+      font: contentFont,
+      color: rgb(0.4, 0.4, 0.4),
     })
-  } else {
-    recommendations.push({
-      type: "NEUTRAL",
-      text: "Balanced sentiment suggests stable conditions. Maintain current positioning with heightened monitoring.",
-    })
-  }
 
-  if (volatilityIndex > 70) {
-    recommendations.push({
-      type: "ALERT",
-      text: "High volatility index indicates market uncertainty. Exercise caution in new positions and consider hedging strategies.",
-    })
-  }
+    yPos -= 20
 
-  if (avgReliability < 0.75) {
-    recommendations.push({
-      type: "WARNING",
-      text: "Source credibility below institutional threshold. Cross-reference findings with additional premium sources.",
-    })
-  }
+    for (let i = 0; i < cityWeatherData.length; i++) {
+      const cityWeather = cityWeatherData[i]
+      
+      if (yPos < 200) {
+        addFooter(page, pageNumber)
+        pageNumber++
+        page = pdfDoc.addPage([595, 842])
+        yPos = addHeader(page)
+      }
 
-  if (topSources.length < 4) {
-    recommendations.push({
-      type: "INFO",
-      text: "Limited source diversity detected. Expand monitoring network to reduce potential bias in market analysis.",
-    })
-  }
+      // City header
+      page.drawRectangle({
+        x: margin,
+        y: yPos - 25,
+        width: pageWidth,
+        height: 25,
+        color: rgb(0.15, 0.45, 0.85),
+      })
 
-  for (let i = 0; i < recommendations.length; i++) {
-    const rec = recommendations[i]
-    const lines = wrapText(rec.text, 100)
-    const boxHeight = lines.length * 11 + 22
+      page.drawText(cityWeather.location.toUpperCase(), {
+        x: margin + 10,
+        y: yPos - 17,
+        size: 12,
+        font: headingFontBold,
+        color: rgb(1, 1, 1),
+      })
 
-    let bgColor = rgb(0.94, 0.96, 0.99)
-    let borderColor = rgb(0.05, 0.1, 0.2)
+      // Current weather condition text
+      page.drawText(getWeatherIcon(cityWeather.condition), {
+        x: margin + pageWidth - 50,
+        y: yPos - 17,
+        size: 10,
+        font: contentFontBold,
+        color: rgb(1, 1, 1),
+      })
 
-    if (rec.type === "BULLISH") {
-      bgColor = rgb(0.94, 1, 0.94)
-      borderColor = rgb(0.15, 0.75, 0.35)
-    } else if (rec.type === "BEARISH") {
-      bgColor = rgb(1, 0.94, 0.94)
-      borderColor = rgb(0.85, 0.25, 0.15)
-    } else if (rec.type === "ALERT" || rec.type === "WARNING") {
-      bgColor = rgb(1, 0.97, 0.94)
-      borderColor = rgb(0.85, 0.65, 0.15)
+      yPos -= 35
+
+      // Current conditions
+      page.drawRectangle({
+        x: margin,
+        y: yPos - 40,
+        width: pageWidth,
+        height: 40,
+        color: rgb(0.96, 0.98, 1),
+        borderColor: rgb(0.85, 0.85, 0.85),
+        borderWidth: 1,
+      })
+
+      page.drawText("TODAY", {
+        x: margin + 10,
+        y: yPos - 12,
+        size: 9,
+        font: headingFontBold,
+        color: rgb(0.15, 0.45, 0.85),
+      })
+
+      page.drawText(`${cityWeather.temperature}degC | ${cityWeather.condition}`, {
+        x: margin + 80,
+        y: yPos - 12,
+        size: 10,
+        font: contentFontBold,
+        color: rgb(0.05, 0.1, 0.2),
+      })
+
+      page.drawText(`Humidity: ${cityWeather.humidity || 'N/A'}% | Wind: ${cityWeather.windSpeed || 'N/A'} km/h`, {
+        x: margin + 10,
+        y: yPos - 28,
+        size: 8,
+        font: contentFont,
+        color: rgb(0.3, 0.3, 0.3),
+      })
+
+      yPos -= 50
+
+      // 7-day forecast
+      if (cityWeather.forecast && cityWeather.forecast.length > 0) {
+        page.drawText("7-DAY FORECAST", {
+          x: margin,
+          y: yPos,
+          size: 9,
+          font: headingFontBold,
+          color: rgb(0.05, 0.1, 0.2),
+        })
+
+        yPos -= 15
+
+        // Forecast table header
+        page.drawRectangle({
+          x: margin,
+          y: yPos - 20,
+          width: pageWidth,
+          height: 20,
+          color: rgb(0.9, 0.9, 0.9),
+          borderColor: rgb(0.7, 0.7, 0.7),
+          borderWidth: 0.5,
+        })
+
+        const colWidth = pageWidth / 5
+        const headers = ['DAY', 'HIGH/LOW', 'CONDITION', 'CLOUDS', 'CODE']
+        
+        headers.forEach((header, index) => {
+          page.drawText(header, {
+            x: margin + 5 + (index * colWidth),
+            y: yPos - 14,
+            size: 7,
+            font: headingFontBold,
+            color: rgb(0.2, 0.2, 0.2),
+          })
+        })
+
+        yPos -= 25
+
+        // Forecast rows
+        cityWeather.forecast.slice(0, 7).forEach((forecast, index) => {
+          const rowColor = index % 2 === 0 ? rgb(0.98, 0.98, 0.99) : rgb(1, 1, 1)
+          
+          page.drawRectangle({
+            x: margin,
+            y: yPos - 18,
+            width: pageWidth,
+            height: 18,
+            color: rowColor,
+            borderColor: rgb(0.9, 0.9, 0.9),
+            borderWidth: 0.3,
+          })
+
+          // Day
+          page.drawText(forecast.day, {
+            x: margin + 5,
+            y: yPos - 13,
+            size: 8,
+            font: contentFont,
+            color: rgb(0.1, 0.1, 0.1),
+          })
+
+          // High/Low
+          page.drawText(`${forecast.high}deg/${forecast.low}deg`, {
+            x: margin + 5 + colWidth,
+            y: yPos - 13,
+            size: 8,
+            font: contentFontBold,
+            color: rgb(0.1, 0.1, 0.1),
+          })
+
+          // Condition
+          page.drawText(forecast.condition, {
+            x: margin + 5 + (2 * colWidth),
+            y: yPos - 13,
+            size: 8,
+            font: contentFont,
+            color: rgb(0.1, 0.1, 0.1),
+          })
+
+          // Clouds
+          page.drawText(`${forecast.clouds || 0}%`, {
+            x: margin + 5 + (3 * colWidth),
+            y: yPos - 13,
+            size: 8,
+            font: contentFont,
+            color: rgb(0.1, 0.1, 0.1),
+          })
+
+          // Weather code
+          page.drawText(getWeatherIcon(forecast.condition), {
+            x: margin + 5 + (4 * colWidth),
+            y: yPos - 13,
+            size: 8,
+            font: contentFontBold,
+            color: rgb(0.1, 0.1, 0.1),
+          })
+
+          yPos -= 20
+        })
+      }
+
+      yPos -= 15
     }
 
-    page.drawRectangle({
-      x: margin,
-      y: yPos - boxHeight,
-      width: pageWidth,
-      height: boxHeight,
-      color: bgColor,
-      borderColor: borderColor,
-      borderWidth: 2,
-    })
+    // Weather summary
+    if (yPos > 100) {
+      yPos -= 10
+      page.drawRectangle({
+        x: margin,
+        y: yPos - 45,
+        width: pageWidth,
+        height: 45,
+        color: rgb(0.94, 0.97, 1),
+        borderColor: rgb(0.15, 0.45, 0.85),
+        borderWidth: 1.5,
+      })
 
-    page.drawText(`[${rec.type}] ${lines[0]}`, {
-      x: margin + 12,
-      y: yPos - 15,
-      size: 9,
-      font: headingFontBold,
-      color: borderColor,
-    })
+      page.drawText("WEATHER INSIGHTS", {
+        x: margin + 10,
+        y: yPos - 15,
+        size: 9,
+        font: headingFontBold,
+        color: rgb(0.15, 0.45, 0.85),
+      })
 
-    let recY = yPos - 26
-    for (let j = 1; j < lines.length; j++) {
-      page.drawText(lines[j], {
-        x: margin + 12,
-        y: recY,
+      const avgTemp = Math.round(cityWeatherData.reduce((sum, city) => sum + city.temperature, 0) / cityWeatherData.length)
+      const commonCondition = cityWeatherData
+        .map(city => city.condition)
+        .reduce((a, b, i, arr) => 
+          arr.filter(v => v === a).length >= arr.filter(v => v === b).length ? a : b
+        )
+
+      page.drawText(`Average temperature across major cities: ${avgTemp}degC | Most common condition: ${commonCondition}`, {
+        x: margin + 10,
+        y: yPos - 30,
         size: 8,
         font: contentFont,
         color: rgb(0.1, 0.1, 0.1),
       })
-      recY -= 11
     }
 
-    yPos -= boxHeight + 16
+    addFooter(page, pageNumber)
+    pageNumber++
   }
 
-  addFooter(page, pageNumber)
+  // Add comprehensive stock market analysis section
+  const detailedMarketData = await fetchMarketIndices()
+  if (detailedMarketData) {
+    page = pdfDoc.addPage([595, 842])
+    yPos = addHeader(page)
+
+    page.drawText("COMPREHENSIVE STOCK MARKET ANALYSIS", {
+      x: margin,
+      y: yPos,
+      size: 13,
+      font: headingFontBold,
+      color: rgb(0.05, 0.1, 0.2),
+    })
+
+    yPos -= 25
+
+    page.drawText(`Market Data Updated: ${new Date().toLocaleString('en-US', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit',
+      timeZone: 'Asia/Kolkata'
+    })} IST`, {
+      x: margin,
+      y: yPos,
+      size: 9,
+      font: contentFont,
+      color: rgb(0.4, 0.4, 0.4),
+    })
+
+    yPos -= 30
+
+    // Market indices detailed analysis
+    const indices = [
+      { key: 'nifty50', label: 'NIFTY 50', description: 'Top 50 companies by market capitalization' },
+      { key: 'sensex', label: 'BSE SENSEX', description: '30 well-established and financially sound companies' },
+      { key: 'bankNifty', label: 'NIFTY BANK', description: 'Banking sector performance indicator' }
+    ]
+
+    for (let i = 0; i < indices.length; i++) {
+      const { key, label, description } = indices[i]
+      const stockData = detailedMarketData[key as keyof MarketIndices] as StockData | undefined
+      
+      if (stockData) {
+        if (yPos < 150) {
+          addFooter(page, pageNumber)
+          pageNumber++
+          page = pdfDoc.addPage([595, 842])
+          yPos = addHeader(page)
+        }
+
+        const changeColor = stockData.change >= 0 ? rgb(0.15, 0.75, 0.35) : rgb(0.85, 0.25, 0.15)
+        const trendIcon = stockData.change >= 0 ? '^' : 'v'
+        const trendBg = stockData.change >= 0 ? rgb(0.9, 0.98, 0.9) : rgb(0.98, 0.9, 0.9)
+
+        // Index header box
+        page.drawRectangle({
+          x: margin,
+          y: yPos - 85,
+          width: pageWidth,
+          height: 85,
+          color: trendBg,
+          borderColor: changeColor,
+          borderWidth: 2,
+        })
+
+        // Index name and trend indicator
+        page.drawText(label, {
+          x: margin + 12,
+          y: yPos - 18,
+          size: 14,
+          font: headingFontBold,
+          color: rgb(0.05, 0.1, 0.2),
+        })
+
+        page.drawRectangle({
+          x: margin + pageWidth - 80,
+          y: yPos - 25,
+          width: 70,
+          height: 20,
+          color: changeColor,
+        })
+
+        drawTextSafe(page, `${trendIcon} ${stockData.changePercent.toFixed(2)}%`, {
+          x: margin + pageWidth - 75,
+          y: yPos - 19,
+          size: 10,
+          font: contentFontBold,
+          color: rgb(1, 1, 1),
+        })
+
+        // Current price and change
+        page.drawText(`Current Price: Rs.${stockData.price.toLocaleString()}`, {
+          x: margin + 12,
+          y: yPos - 38,
+          size: 11,
+          font: contentFontBold,
+          color: rgb(0.05, 0.1, 0.2),
+        })
+
+        page.drawText(`Change: ${stockData.change >= 0 ? '+' : ''}Rs.${stockData.change.toFixed(2)}`, {
+          x: margin + 200,
+          y: yPos - 38,
+          size: 11,
+          font: contentFontBold,
+          color: changeColor,
+        })
+
+        // Additional details
+        page.drawText(description, {
+          x: margin + 12,
+          y: yPos - 55,
+          size: 8,
+          font: contentFont,
+          color: rgb(0.3, 0.3, 0.3),
+        })
+
+        if (stockData.volume) {
+          page.drawText(`Trading Volume: ${(stockData.volume / 10000000).toFixed(2)} Cr`, {
+            x: margin + 12,
+            y: yPos - 70,
+            size: 8,
+            font: contentFont,
+            color: rgb(0.3, 0.3, 0.3),
+          })
+        }
+
+        if (stockData.marketCap) {
+          page.drawText(`Market Cap: ${stockData.marketCap}`, {
+            x: margin + 200,
+            y: yPos - 70,
+            size: 8,
+            font: contentFont,
+            color: rgb(0.3, 0.3, 0.3),
+          })
+        }
+
+        yPos -= 100
+      }
+    }
+
+    // Market summary and insights
+    const validIndices = [detailedMarketData.nifty50, detailedMarketData.sensex, detailedMarketData.bankNifty].filter(Boolean) as StockData[]
+    
+    if (validIndices.length > 0 && yPos > 120) {
+      page.drawRectangle({
+        x: margin,
+        y: yPos - 80,
+        width: pageWidth,
+        height: 80,
+        color: rgb(0.94, 0.96, 0.99),
+        borderColor: rgb(0.15, 0.45, 0.85),
+        borderWidth: 2,
+      })
+
+      page.drawText("MARKET INSIGHTS", {
+        x: margin + 12,
+        y: yPos - 15,
+        size: 12,
+        font: headingFontBold,
+        color: rgb(0.15, 0.45, 0.85),
+      })
+
+      const positiveIndices = validIndices.filter(stock => stock.change >= 0).length
+      const avgChange = validIndices.reduce((sum, stock) => sum + stock.changePercent, 0) / validIndices.length
+      const marketSentiment = avgChange >= 0 ? 'BULLISH' : 'BEARISH'
+      const sentimentColor = avgChange >= 0 ? rgb(0.15, 0.75, 0.35) : rgb(0.85, 0.25, 0.15)
+
+      page.drawText(`Market Sentiment: ${marketSentiment}`, {
+        x: margin + 12,
+        y: yPos - 35,
+        size: 10,
+        font: contentFontBold,
+        color: sentimentColor,
+      })
+
+      page.drawText(`${positiveIndices}/${validIndices.length} indices showing positive momentum`, {
+        x: margin + 12,
+        y: yPos - 50,
+        size: 9,
+        font: contentFont,
+        color: rgb(0.3, 0.3, 0.3),
+      })
+
+      page.drawText(`Average change: ${avgChange >= 0 ? '+' : ''}${avgChange.toFixed(2)}%`, {
+        x: margin + 12,
+        y: yPos - 65,
+        size: 9,
+        font: contentFont,
+        color: rgb(0.3, 0.3, 0.3),
+      })
+    }
+
+    addFooter(page, pageNumber)
+    pageNumber++
+  }
 
   const pdfBytes = await pdfDoc.save()
   const pdfBuffer = Buffer.from(pdfBytes)
@@ -1320,4 +1741,8 @@ export async function generateDigestPDF(
   })
 
   return publicUrl
+  } catch (error) {
+    console.error('PDF generation failed:', error)
+    throw new Error(`PDF generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
 }
