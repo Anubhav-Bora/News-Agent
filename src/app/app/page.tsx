@@ -67,11 +67,6 @@ export default function AppPage() {
   const languages = [
     { code: "Hindi", label: "हिंदी (Hindi)" },
     { code: "English", label: "English" },
-    { code: "Spanish", label: "Español (Spanish)" },
-    { code: "French", label: "Français (French)" },
-    { code: "German", label: "Deutsch (German)" },
-    { code: "Japanese", label: "日本語 (Japanese)" },
-    { code: "Chinese", label: "中文 (Chinese)" },
   ]
 
   const indianStates = [

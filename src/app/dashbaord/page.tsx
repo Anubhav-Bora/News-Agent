@@ -103,7 +103,7 @@ export default function DashboardPage() {
           <StatCard label="Total Digests" value="24" />
           <StatCard label="Articles Processed" value="342" />
           <StatCard label="Avg Sentiment" value="62%" />
-          <StatCard label="Languages" value="5" />
+          <StatCard label="Languages" value="2" />
         </div>
 
         {/* Tabs */}
@@ -218,8 +218,7 @@ export default function DashboardPage() {
                 <label className="block text-sm font-medium mb-2">Preferred Language</label>
                 <select className="w-full px-4 py-2 border border-border rounded-lg bg-background">
                   <option>English</option>
-                  <option>Spanish</option>
-                  <option>French</option>
+                  <option>Hindi</option>
                 </select>
               </div>
               <div>

@@ -135,8 +135,8 @@ export default function LandingPage() {
           />
           <FeatureCard
             icon={<Globe className="w-6 h-6" />}
-            title="50+ Languages"
-            description="Global news in your language"
+            title="2 Languages"
+            description="News in Hindi and English"
           />
           <FeatureCard
             icon={<TrendingUp className="w-6 h-6" />}
