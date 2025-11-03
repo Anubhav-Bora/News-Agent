@@ -1,0 +1,127 @@
+name: News Pipeline for Vercel
+
+on:
+  # Manual trigger with scheduling options
+  workflow_dispatch:
+    inputs:
+      userId:
+        description: 'User ID'
+        required: true
+        type: string
+      userName:
+        description: 'User Name'
+        required: true
+        type: string
+      email:
+        description: 'User Email'
+        required: true
+        type: string
+      language:
+        description: 'Preferred Language'
+        required: true
+        type: choice
+        options:
+          - 'English'
+          - 'Spanish'
+          - 'French'
+          - 'German'
+          - 'Hindi'
+          - 'Japanese'
+          - 'Chinese'
+        default: 'English'
+      newsType:
+        description: 'News Category'
+        required: true
+        type: choice
+        options:
+          - 'all'
+          - 'technology'
+          - 'business'
+          - 'sports'
+          - 'state'
+        default: 'all'
+      state:
+        description: 'State (for state news)'
+        required: false
+        type: string
+      location:
+        description: 'Weather Location'
+        required: false
+        type: string
+      scheduleTime:
+        description: 'Schedule Time (HH:MM)'
+        required: false
+        type: string
+      timezone:
+        description: 'Timezone'
+        required: false
+        type: string
+        default: 'UTC'
+
+  # Cron schedules for common times
+  schedule:
+    - cron: '0 6 * * *'   # 6 AM UTC daily
+    - cron: '0 12 * * *'  # 12 PM UTC daily
+    - cron: '0 18 * * *'  # 6 PM UTC daily
+
+jobs:
+  trigger-pipeline:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Wait for scheduled time (if specified)
+        if: github.event.inputs.scheduleTime != ''
+        run: |
+          SCHEDULE_TIME="${{ github.event.inputs.scheduleTime }}"
+          TIMEZONE="${{ github.event.inputs.timezone || 'UTC' }}"
+          
+          echo "⏰ Scheduled for: $SCHEDULE_TIME ($TIMEZONE)"
+          echo "🕐 Current time: $(date)"
+          
+          # Add a 5-second delay for demo
+          sleep 5
+
+      - name: Call Vercel API
+        run: |
+          echo "🚀 Triggering news pipeline on Vercel..."
+          
+          # Construct the API URL (use your actual Vercel deployment URL)
+          API_URL="${{ secrets.VERCEL_APP_URL }}/api/run-pipeline"
+          
+          # Make the API call to your deployed Vercel app
+          response=$(curl -s -w "%{http_code}" -X POST "$API_URL" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "userId": "${{ github.event.inputs.userId || 'github-scheduled' }}",
+              "userName": "${{ github.event.inputs.userName || 'Scheduled User' }}",
+              "email": "${{ github.event.inputs.email || 'test@example.com' }}",
+              "language": "${{ github.event.inputs.language || 'English' }}",
+              "newsType": "${{ github.event.inputs.newsType || 'all' }}",
+              "state": "${{ github.event.inputs.state }}",
+              "location": "${{ github.event.inputs.location }}",
+              "source": "github-workflow-vercel"
+            }')
+          
+          # Extract HTTP status code (last 3 characters)
+          http_code="${response: -3}"
+          response_body="${response%???}"
+          
+          echo "📊 API Response Code: $http_code"
+          echo "📄 Response Body: $response_body"
+          
+          # Check if successful
+          if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
+            echo "✅ Pipeline triggered successfully!"
+          else
+            echo "❌ Pipeline failed with code: $http_code"
+            exit 1
+          fi
+
+      - name: Log completion
+        run: |
+          echo "🎉 Workflow completed at $(date)"
+          echo "👤 User: ${{ github.event.inputs.userName || 'Scheduled User' }}"
+          echo "📧 Email: ${{ github.event.inputs.email || 'N/A' }}"
+          echo "🌐 Language: ${{ github.event.inputs.language || 'English' }}"
+          echo "📰 News Type: ${{ github.event.inputs.newsType || 'all' }}"
+          echo "📍 Location: ${{ github.event.inputs.location || 'N/A' }}"
