@@ -28,17 +28,17 @@ export default function DashboardPage() {
   ]
 
   const categoryData = [
-    { name: "Technology", value: 28 },
-    { name: "Business", value: 22 },
-    { name: "Politics", value: 18 },
+    { name: "National", value: 28 },
+    { name: "International", value: 22 },
+    { name: "Technology", value: 20 },
     { name: "Sports", value: 15 },
-    { name: "Other", value: 17 },
+    { name: "State", value: 15 },
   ]
 
   const recentDigests = [
     { id: 1, date: "Oct 23, 2025", category: "Technology", articles: 15, sentiment: "Positive" },
     { id: 2, date: "Oct 22, 2025", category: "All News", articles: 18, sentiment: "Neutral" },
-    { id: 3, date: "Oct 21, 2025", category: "Business", articles: 12, sentiment: "Mixed" },
+    { id: 3, date: "Oct 21, 2025", category: "National", articles: 12, sentiment: "Mixed" },
   ]
 
   return (

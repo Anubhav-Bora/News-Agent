@@ -387,7 +387,7 @@ export async function collectDailyDigest(
   if (topic === "all") {
     console.log(`📰 Collecting digest for topic: all (equal distribution from all categories)`);
     
-    const categories = ["tech", "sports", "national", "international"];
+    const categories = ["technology", "sports", "national", "international"];
     const categoryArticles: Record<string, NewsItem[]> = {};
     const allItems: NewsItem[] = [];
     

@@ -17,7 +17,7 @@ export interface PipelineInput {
   userName?: string;
   email: string;
   language: string;
-  newsType: "all" | "tech" | "national" | "international" | "sports" | "state";
+  newsType: "all" | "national" | "international" | "technology" | "sports" | "state";
   state?: string;
   location?: string;
 }

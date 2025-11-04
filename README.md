@@ -509,7 +509,7 @@ const createPDFReport = async () => {
       title: "Market Update",
       summary: "Stocks show positive momentum...",
       source: "Financial Times",
-      topic: "business",
+      topic: "national",
       sentiment: "positive" as const,
       pubDate: new Date().toISOString()
     }

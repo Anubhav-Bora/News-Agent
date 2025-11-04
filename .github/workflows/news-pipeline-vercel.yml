@@ -30,8 +30,9 @@ on:
         type: choice
         options:
           - 'all'
+          - 'national'
+          - 'international'
           - 'technology'
-          - 'business'
           - 'sports'
           - 'state'
         default: 'all'

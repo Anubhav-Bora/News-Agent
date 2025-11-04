@@ -30,13 +30,10 @@ on:
         type: choice
         options:
           - 'all'
+          - 'national'
+          - 'international'
           - 'technology'
-          - 'business'
           - 'sports'
-          - 'politics'
-          - 'entertainment'
-          - 'health'
-          - 'science'
           - 'state'
         default: 'all'
       state:

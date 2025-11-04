@@ -58,8 +58,9 @@ export default function AppPage() {
 
   const categories = [
     { id: "all", label: "All News", icon: "📰" },
-    { id: "technology", label: "Technology", icon: "💻" },
-    { id: "business", label: "Business", icon: "💼" },
+    { id: "national", label: "National", icon: "🇮🇳" },
+    { id: "international", label: "International", icon: "🌍" },
+    { id: "technology", label: "Technology", icon: "�" },
     { id: "sports", label: "Sports", icon: "⚽" },
     { id: "state", label: "State News", icon: "📍" },
   ]
