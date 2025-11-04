@@ -22,12 +22,7 @@ on:
         type: choice
         options:
           - 'English'
-          - 'Spanish'
-          - 'French'
-          - 'German'
           - 'Hindi'
-          - 'Japanese'
-          - 'Chinese'
         default: 'English'
       newsType:
         description: 'News Category'
