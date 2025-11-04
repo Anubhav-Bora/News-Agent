@@ -80,11 +80,33 @@ jobs:
         run: |
           echo "🚀 Triggering news pipeline on Vercel..."
           
-          # Construct the API URL (use your actual Vercel deployment URL)
-          API_URL="${{ secrets.VERCEL_APP_URL }}/api/run-pipeline"
+          # Debug: Check if VERCEL_APP_URL is set
+          if [ -z "${{ secrets.VERCEL_APP_URL }}" ]; then
+            echo "❌ ERROR: VERCEL_APP_URL secret is not set!"
+            echo "Please add your Vercel deployment URL to GitHub Secrets"
+            echo "Example: https://your-app-name.vercel.app"
+            exit 1
+          fi
           
-          # Make the API call to your deployed Vercel app
-          response=$(curl -s -w "%{http_code}" -X POST "$API_URL" \
+          # Construct the API URL
+          API_URL="${{ secrets.VERCEL_APP_URL }}/api/run-pipeline"
+          echo "🔗 API URL: $API_URL"
+          
+          # Test if the URL is reachable first
+          echo "🧪 Testing API endpoint availability..."
+          curl_test=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$API_URL" || echo "FAILED")
+          
+          if [ "$curl_test" = "FAILED" ]; then
+            echo "❌ ERROR: Cannot reach the API endpoint"
+            echo "Please check your VERCEL_APP_URL secret and ensure your app is deployed"
+            exit 3
+          fi
+          
+          echo "📡 Endpoint test response: $curl_test"
+          
+          # Make the actual API call
+          echo "📨 Sending pipeline request..."
+          response=$(curl -s -w "%{http_code}" --max-time 30 -X POST "$API_URL" \
             -H "Content-Type: application/json" \
             -d '{
               "userId": "${{ github.event.inputs.userId || 'github-scheduled' }}",
@@ -95,7 +117,14 @@ jobs:
               "state": "${{ github.event.inputs.state }}",
               "location": "${{ github.event.inputs.location }}",
               "source": "github-workflow-vercel"
-            }')
+            }' || echo "CURL_FAILED")
+          
+          # Check if curl command itself failed
+          if [ "$response" = "CURL_FAILED" ]; then
+            echo "❌ ERROR: curl command failed"
+            echo "This could be due to network issues or invalid URL"
+            exit 3
+          fi
           
           # Extract HTTP status code (last 3 characters)
           http_code="${response: -3}"
