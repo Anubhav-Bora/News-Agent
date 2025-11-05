@@ -143,7 +143,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 // Helper function to determine if a task should be executed
 function shouldExecuteTask(task: any, currentTime: string, currentDate: string): boolean {
-  const [scheduleHour, scheduleMinute] = task.schedule_time.split(':').map(Number);
+  // Handle timezone conversion
+  let scheduleTimeToCheck = task.schedule_time;
+  
+  // If timezone is IST/Asia/Kolkata, convert to UTC for comparison
+  if (task.timezone === 'Asia/Kolkata' || task.timezone === 'IST') {
+    const [scheduleHour, scheduleMinute] = task.schedule_time.split(':').map(Number);
+    // Convert IST to UTC (IST = UTC + 5:30)
+    let utcHour = scheduleHour - 5;
+    let utcMinute = scheduleMinute - 30;
+    
+    if (utcMinute < 0) {
+      utcMinute += 60;
+      utcHour -= 1;
+    }
+    
+    if (utcHour < 0) {
+      utcHour += 24;
+    }
+    
+    scheduleTimeToCheck = `${utcHour.toString().padStart(2, '0')}:${utcMinute.toString().padStart(2, '0')}`;
+    
+    logger.info(`🕐 Converting ${task.schedule_time} IST to ${scheduleTimeToCheck} UTC for task: ${task.user_name}`);
+  }
+  
+  const [scheduleHour, scheduleMinute] = scheduleTimeToCheck.split(':').map(Number);
   const [currentHour, currentMinute] = currentTime.split(':').map(Number);
   
   // Convert times to minutes for easier comparison
@@ -162,7 +186,11 @@ function shouldExecuteTask(task: any, currentTime: string, currentDate: string):
   const shouldExecute = isWithinTimeWindow && !hasRunToday;
   
   if (shouldExecute) {
-    logger.info(`⏰ Task ready to execute: ${task.user_name} - scheduled: ${task.schedule_time}, current: ${currentTime}, last run: ${lastRun || 'never'}`);
+    logger.info(`⏰ Task ready to execute: ${task.user_name} - scheduled: ${task.schedule_time} ${task.timezone} (${scheduleTimeToCheck} UTC), current: ${currentTime} UTC, last run: ${lastRun || 'never'}`);
+  } else if (isWithinTimeWindow && hasRunToday) {
+    logger.info(`⏭️ Task already executed today: ${task.user_name} - last run: ${lastRun}`);
+  } else {
+    logger.info(`⏭️ Task not in time window: ${task.user_name} - scheduled: ${scheduleTimeToCheck} UTC, current: ${currentTime} UTC, diff: ${timeDiff} minutes`);
   }
   
   return shouldExecute;
