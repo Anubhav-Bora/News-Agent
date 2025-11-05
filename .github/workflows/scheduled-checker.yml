@@ -1,0 +1,46 @@
+name: Scheduled News Tasks Checker
+
+on:
+  # Run every 15 minutes to check for scheduled tasks
+  schedule:
+    - cron: '*/15 * * * *'  # Every 15 minutes
+  
+  # Manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  check-scheduled-tasks:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check current time
+        run: |
+          echo "🕐 Current UTC time: $(date -u)"
+          echo "🕐 Current local time: $(date)"
+
+      - name: Check and execute scheduled tasks
+        run: |
+          echo "🔍 Checking for scheduled tasks..."
+          
+          # Call the API to check for scheduled tasks
+          response=$(curl -s -w "HTTPSTATUS:%{http_code}" \
+            -X GET "${{ secrets.VERCEL_APP_URL }}/api/check-scheduled-tasks" \
+            -H "Content-Type: application/json")
+          
+          # Extract HTTP status and body
+          http_code=$(echo $response | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
+          body=$(echo $response | sed -e 's/HTTPSTATUS:.*//g')
+          
+          echo "📊 HTTP Status: $http_code"
+          echo "📄 Response: $body"
+          
+          if [ "$http_code" -eq 200 ]; then
+            echo "✅ Scheduled task check completed successfully"
+          else
+            echo "❌ Scheduled task check failed with status: $http_code"
+            exit 1
+          fi
+
+      - name: Log completion
+        run: |
+          echo "🎉 Scheduled task workflow completed at $(date -u)"

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import logger from "@/lib/logger";
+import { createClient } from '@supabase/supabase-js';
 
 interface ScheduleWorkflowRequest {
   userId: string;
@@ -175,33 +176,43 @@ async function storeSchedule(scheduleData: {
   location?: string;
 }) {
   try {
-    // This would typically save to your database
-    // For now, just log it
-    logger.info('Schedule stored:', scheduleData);
-    
-    // TODO: Implement database storage
-    // Example with Supabase:
-    // const { data, error } = await supabase
-    //   .from('scheduled_news')
-    //   .insert([{
-    //     user_id: scheduleData.userId,
-    //     user_name: scheduleData.userName,
-    //     user_email: scheduleData.email,
-    //     schedule_time: scheduleData.scheduleTime,
-    //     schedule_days: scheduleData.scheduleDays,
-    //     timezone: scheduleData.timezone,
-    //     frequency: scheduleData.frequency,
-    //     news_type: scheduleData.newsType,
-    //     language: scheduleData.language,
-    //     state: scheduleData.state,
-    //     location: scheduleData.location,
-    //     status: 'scheduled',
-    //     created_at: new Date().toISOString(),
-    //   }]);
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Calculate expiry date
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + scheduleData.scheduleDays);
+
+    const { data, error } = await supabase
+      .from('scheduled_news_tasks')
+      .insert([{
+        user_id: scheduleData.userId,
+        user_name: scheduleData.userName,
+        user_email: scheduleData.email,
+        schedule_time: scheduleData.scheduleTime,
+        schedule_days: scheduleData.scheduleDays,
+        timezone: scheduleData.timezone,
+        news_type: scheduleData.newsType,
+        language: scheduleData.language,
+        state: scheduleData.state,
+        location: scheduleData.location,
+        status: 'active',
+        expiry_date: expiryDate.toISOString().split('T')[0],
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    logger.info(`✅ Schedule stored successfully in database for user: ${scheduleData.userName}`);
+    return data;
     
   } catch (error) {
-    logger.error('Failed to store schedule:', error);
-    // Don't throw - this is non-critical
+    logger.error('❌ Failed to store schedule in database:', error);
+    throw error; // Re-throw to handle in the main function
   }
 }
 
@@ -219,11 +230,37 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // TODO: Retrieve user's scheduled workflows from database
-  
-  return NextResponse.json({
-    success: true,
-    message: "Scheduled workflows retrieved",
-    schedules: [], // TODO: Return actual schedules from database
-  });
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { data: schedules, error } = await supabase
+      .from('scheduled_news_tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Scheduled workflows retrieved",
+      schedules: schedules || [],
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    logger.error(`Failed to retrieve schedules: ${errorMessage}`, error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Failed to retrieve scheduled workflows",
+        error: errorMessage,
+      },
+      { status: 500 }
+    );
+  }
 }

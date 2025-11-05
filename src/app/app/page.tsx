@@ -60,7 +60,7 @@ export default function AppPage() {
     { id: "all", label: "All News", icon: "📰" },
     { id: "national", label: "National", icon: "🇮🇳" },
     { id: "international", label: "International", icon: "🌍" },
-    { id: "technology", label: "Technology", icon: "�" },
+    { id: "technology", label: "Technology", icon: "💻" },
     { id: "sports", label: "Sports", icon: "⚽" },
     { id: "state", label: "State News", icon: "📍" },
   ]
@@ -202,7 +202,6 @@ export default function AppPage() {
           setCurrentStep("Complete! ✓")
           await new Promise(resolve => setTimeout(resolve, 500))
           setShowSuccess(true)
-          setTimeout(() => setShowSuccess(false), 5000)
         } else {
           alert(`Error: ${data.message || "Failed to generate digest"}`)
         }
@@ -235,20 +234,13 @@ export default function AppPage() {
         if (response.ok) {
           setCurrentStep("Schedule created successfully! ✓")
           setShowSuccess(true)
-          setTimeout(() => setShowSuccess(false), 5000)
-          
-          // Calculate expiry date
-          const expiryDate = new Date()
-          expiryDate.setDate(expiryDate.getDate() + scheduleDays)
-          
-          alert(`Daily news digest scheduled!\n\nTime: ${scheduleTime} (${timezone})\nDuration: ${scheduleDays} days\nExpires: ${expiryDate.toLocaleDateString()}\n\nYou'll receive your first digest tomorrow at the scheduled time.`)
         } else {
-          alert(`Error: ${data.message || "Failed to schedule digest"}`)
+          setCurrentStep(`Error: ${data.message || "Failed to schedule digest"}`)
         }
       }
     } catch (error) {
       console.error("Error:", error)
-      alert("An error occurred")
+      setCurrentStep("An error occurred")
     } finally {
       setIsLoading(false)
       setProgress(0)
@@ -265,25 +257,18 @@ export default function AppPage() {
             News Agent
           </Link>
           <div className="flex items-center gap-4">
-            <Link href="/dashbaord" className="p-2 hover:bg-muted rounded-lg transition-colors">
-              <Settings className="w-5 h-5" />
-            </Link>
             <div className="relative group">
               <button className="flex items-center gap-2 p-2 hover:bg-muted rounded-lg transition-colors">
                 <User className="w-5 h-5" />
                 <ChevronDown className="w-4 h-4" />
               </button>
               <div className="absolute right-0 mt-2 w-48 bg-card border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                <Link href="/dashbaord" className="w-full text-left px-4 py-2 hover:bg-muted flex items-center gap-2 block">
-                  <User className="w-4 h-4" />
-                  Dashboard
-                </Link>
                 <button 
                   onClick={async () => {
                     await signOut()
                     router.push("/")
                   }}
-                  className="w-full text-left px-4 py-2 hover:bg-muted flex items-center gap-2 border-t border-border"
+                  className="w-full text-left px-4 py-2 hover:bg-muted flex items-center gap-2"
                 >
                   <LogOut className="w-4 h-4" />
                   Logout

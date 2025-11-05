@@ -21,15 +21,6 @@ export default function LandingPage() {
             <span className="text-xl font-bold gradient-text">News Agent</span>
           </div>
           <div className="flex items-center gap-6">
-            <Link href="/app" className="text-foreground hover:text-primary transition-colors text-sm font-medium">
-              App
-            </Link>
-            <Link
-              href="/dashboard"
-              className="text-foreground hover:text-primary transition-colors text-sm font-medium"
-            >
-              Dashboard
-            </Link>
             <ThemeToggle />
             <Button asChild size="sm" className="rounded-full">
               <Link href="/app">Get Started</Link>

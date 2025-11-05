@@ -4,24 +4,24 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.6%;
+    --background: 0 0% 99%;
+    --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.6%;
+    --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.6%;
+    --popover-foreground: 222.2 84% 4.9%;
     --primary: 280 100% 44%;
     --primary-foreground: 0 0% 100%;
     --secondary: 200 100% 50%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
     --accent: 180 100% 50%;
-    --accent-foreground: 0 0% 9%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 96.1%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
     --ring: 280 100% 44%;
     --chart-1: 280 100% 44%;
     --chart-2: 200 100% 50%;
@@ -29,13 +29,13 @@
     --chart-4: 30 100% 50%;
     --chart-5: 0 0% 50%;
     --radius: 0.5rem;
-    --sidebar: 0 0% 100%;
-    --sidebar-foreground: 0 0% 3.6%;
+    --sidebar: 0 0% 98%;
+    --sidebar-foreground: 222.2 84% 4.9%;
     --sidebar-primary: 280 100% 44%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 200 100% 50%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 0 0% 89.8%;
+    --sidebar-border: 214.3 31.8% 91.4%;
     --sidebar-ring: 280 100% 44%;
     --sentiment-positive: 140 70% 50%;
     --sentiment-negative: 20 100% 50%;
@@ -82,19 +82,79 @@
 
   body {
     @apply bg-background text-foreground;
+    background-image: radial-gradient(circle at 25px 25px, rgba(255,255,255,0.2) 2px, transparent 0),
+                      radial-gradient(circle at 75px 75px, rgba(255,255,255,0.2) 2px, transparent 0);
+    background-size: 100px 100px;
+    background-attachment: fixed;
+  }
+  
+  .dark body {
+    background-image: radial-gradient(circle at 25px 25px, rgba(255,255,255,0.05) 2px, transparent 0),
+                      radial-gradient(circle at 75px 75px, rgba(255,255,255,0.05) 2px, transparent 0);
   }
 }
 
 @layer components {
   .glass {
-    @apply bg-white/10 dark:bg-white/5 backdrop-blur-md border border-white/20 dark:border-white/10;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  }
+
+  .dark .glass {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   }
 
   .gradient-text {
-    @apply bg-gradient-to-r from-primary via-secondary to-accent bg-clip-text text-transparent;
+    background: linear-gradient(to right, hsl(var(--primary)), hsl(var(--secondary)), hsl(var(--accent)));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 
   .glow-effect {
-    @apply shadow-lg shadow-primary/20 dark:shadow-primary/30;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1), 0 0 20px hsla(var(--primary), 0.2);
+  }
+
+  .dark .glow-effect {
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 20px hsla(var(--primary), 0.3);
+  }
+
+  /* Additional light mode improvements */
+  .category-button {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.7));
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+  }
+
+  .category-button:hover {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0.9));
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(-1px);
+  }
+
+  .dark .category-button {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .dark .category-button:hover {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.1));
+  }
+
+  /* Header improvements */
+  .header-glass {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  }
+
+  .dark .header-glass {
+    background: rgba(0, 0, 0, 0.8);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   }
 }

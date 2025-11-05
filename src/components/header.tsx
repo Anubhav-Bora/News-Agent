@@ -21,12 +21,6 @@ export function Header() {
           <span className="text-xl font-bold gradient-text">News Agent</span>
         </div>
         <div className="flex items-center gap-6">
-          <Link
-            href="/dashboard"
-            className="text-foreground hover:text-primary transition-colors text-sm font-medium"
-          >
-            Dashboard
-          </Link>
           <ThemeToggle />
           {user ? (
             <div className="relative group">
