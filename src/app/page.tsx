@@ -2,13 +2,17 @@
 
 import type React from "react"
 
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Mail, Globe, Zap, TrendingUp, Sparkles, ArrowRight, Newspaper } from "lucide-react"
 import Link from "next/link"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { DemoVideoModal } from "@/components/DemoVideoModal"
 
 export default function LandingPage() {
+  const [showDemoModal, setShowDemoModal] = useState(false)
+  
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation */}
@@ -51,10 +55,18 @@ export default function LandingPage() {
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </Link>
           </Button>
-          <Button size="lg" variant="outline" className="rounded-full bg-transparent">
+          <Button 
+            size="lg" 
+            variant="outline" 
+            className="rounded-full bg-transparent"
+            onClick={() => setShowDemoModal(true)}
+          >
             Watch Demo
           </Button>
         </div>
+
+        {/* Demo Video Modal */}
+        <DemoVideoModal isOpen={showDemoModal} onClose={() => setShowDemoModal(false)} />
 
         {/* Hero Visual - CHANGE: Replaced placeholder boxes with attractive delivery formats showcase */}
         <div className="relative">
