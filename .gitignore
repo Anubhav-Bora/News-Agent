@@ -24,6 +24,11 @@
 .DS_Store
 *.pem
 
+# large video files
+public/assets/*.mp4
+public/assets/*.mov
+public/assets/*.webm
+
 # debug
 npm-debug.log*
 yarn-debug.log*
